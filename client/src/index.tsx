@@ -17,6 +17,8 @@ createRoot(document.getElementById('root')!).render(
     <ThemeProvider>
       <FullScreenContainer>
         <ConsoleTemplate
+          noBotVideo={true}
+          noUserVideo={true}
           transportType="smallwebrtc"
           connectParams={{
             connectionUrl: '/api/offer',
