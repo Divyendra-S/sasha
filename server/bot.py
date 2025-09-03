@@ -36,7 +36,6 @@ from pipecat.processors.frameworks.rtvi import RTVIConfig, RTVIObserver, RTVIPro
 from pipecat.runner.types import RunnerArguments
 from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.groq.tts import GroqTTSService
-from pipecat.processors.filters.text.markdown_text_filter import MarkdownTextFilter
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.network.small_webrtc import SmallWebRTCTransport
@@ -57,18 +56,11 @@ async def run_bot(transport: BaseTransport):
         model="gemini-1.5-flash"
     )
 
-    md_filter = MarkdownTextFilter(
-        params=MarkdownTextFilter.InputParams(
-            filter_code=True,
-            filter_tables=True
-        )
-    )
     
     tts = GroqTTSService(
         api_key=os.getenv("GROQ_API_KEY"),
         model_name="playai-tts",
-        voice_id="Celeste-PlayAI",
-        text_filter=md_filter
+        voice_id="Celeste-PlayAI"
     )
 
     messages = [
