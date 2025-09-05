@@ -58,6 +58,13 @@ class InterviewData:
                     completion_pct = (len(self._collected_fields) / 6) * 100
                     logger.info(f"[INTERVIEW_DATA] Progress: {completion_pct:.0f}% complete ({len(self._collected_fields)}/6 fields)")
                     logger.info(f"[INTERVIEW_DATA] Still missing: {self.get_missing_fields()}")
+                    
+                    # Console log for client-side visibility
+                    print(f"\n🎯 CLIENT CONSOLE: INTERVIEW DATA COLLECTED")
+                    print(f"📊 Field: {field_name}")  
+                    print(f"💾 Value: {value}")
+                    print(f"📈 Progress: {completion_pct:.0f}% ({len(self._collected_fields)}/6 fields)")
+                    print(f"❌ Missing: {self.get_missing_fields()}\n")
                 else:
                     logger.info(f"[INTERVIEW_DATA] Confirmed existing value for {field_name}: '{value}'")
                 return True
@@ -79,13 +86,12 @@ class InterviewExtractor(FrameProcessor):
         self.interview_data = interview_data
         self._extraction_tasks = set()  # Track active extraction tasks
         self._max_concurrent_extractions = 3  # Limit concurrent extractions
+        self.api_key = api_key  # Store API key for direct Gemini calls
         
-        # Initialize extraction LLM
-        self.extraction_llm = OpenAILLMService(
-            api_key=api_key,
-            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-            model="gemini-1.5-flash"
-        )
+        # Sentence buffer to accumulate speech fragments
+        self._sentence_buffer = []
+        self._last_text_time = 0
+        self._sentence_timeout = 3.0  # seconds to wait before processing buffer
         
         self.extraction_prompt = """
 You are an information extraction system for technical interviews. Extract structured information from user responses.
@@ -115,9 +121,25 @@ Now extract information from this user response:
     
     async def should_extract(self, text: str) -> bool:
         """Determine if text contains enough information to warrant extraction."""
-        # Let everything through for now - no restrictions
-        if not text or len(text.strip()) < 2:
+        if not text or len(text.strip()) < 5:  # Minimum 5 characters
             logger.debug(f"[EXTRACTION_FILTER] Too short: '{text}' (length: {len(text.strip()) if text else 0})")
+            return False
+        
+        # Skip common meaningless fragments
+        text_lower = text.lower().strip()
+        skip_phrases = ['hello', 'hi', 'yeah', 'yes', 'no', 'ok', 'okay', 'um', 'uh', 'the wind', 'income']
+        if text_lower in skip_phrases or len(text.split()) < 2:
+            logger.debug(f"[EXTRACTION_FILTER] Skipping common phrase or single word: '{text}'")
+            return False
+        
+        # Only extract if it might contain meaningful info (names, numbers, tech terms)
+        has_potential_info = any(keyword in text_lower for keyword in [
+            'name', 'experience', 'year', 'work', 'skill', 'salary', 'remote', 'hybrid', 'onsite',
+            'developer', 'engineer', 'python', 'javascript', 'java', 'react', 'node'
+        ])
+        
+        if not has_potential_info and len(text.split()) < 3:
+            logger.debug(f"[EXTRACTION_FILTER] No meaningful content detected: '{text}'")
             return False
         
         logger.info(f"[EXTRACTION_FILTER] ✅ Will extract from: '{text[:80]}{'...' if len(text) > 80 else ''}' (length: {len(text.strip())})")
@@ -141,8 +163,18 @@ Now extract information from this user response:
             
             logger.info(f"[EXTRACTION] Raw LLM response: '{response_text}'")
             
+            # Clean up response - remove markdown code blocks if present
+            clean_response = response_text.strip()
+            if clean_response.startswith('```json'):
+                clean_response = clean_response[7:]  # Remove ```json
+            if clean_response.endswith('```'):
+                clean_response = clean_response[:-3]  # Remove ```
+            clean_response = clean_response.strip()
+            
+            logger.info(f"[EXTRACTION] Cleaned response: '{clean_response}'")
+            
             # Parse JSON response
-            extracted_data = json.loads(response_text.strip())
+            extracted_data = json.loads(clean_response)
             
             if extracted_data:
                 logger.info(f"[EXTRACTION] ✅ Successfully extracted: {list(extracted_data.keys())} -> {extracted_data}")
@@ -161,103 +193,42 @@ Now extract information from this user response:
             return {}
     
     async def _call_extraction_llm(self, messages: List[Dict]) -> str:
-        """Helper method to call the extraction LLM and get text response."""
+        """Helper method to call the extraction LLM using Google GenAI SDK."""
         try:
-            text = messages[0]["content"]
-            user_input = text.split('User response: "')[-1].rstrip('"')
-            logger.info(f"[EXTRACTION_LLM] Processing user input: '{user_input[:100]}{'...' if len(user_input) > 100 else ''}'")
+            logger.info("[EXTRACTION_LLM] Making actual Gemini LLM call for information extraction")
             
-            # Simple but effective pattern matching for key information
-            # This is more reliable than mock LLM calls and prevents fake data
-            result = {}
-            user_lower = user_input.lower()
+            # Use Google GenAI SDK directly
+            from google import genai
             
-            # Extract name - look for "my name is", "i'm", "i am", "call me"
-            name_patterns = [
-                ("my name is ", 3), ("name is ", 2), ("i'm ", 1), ("i am ", 2), 
-                ("call me ", 2), ("this is ", 2)
-            ]
-            for pattern, offset in name_patterns:
-                if pattern in user_lower:
-                    words = user_input.split()
-                    pattern_words = pattern.strip().split()
-                    for i in range(len(words) - len(pattern_words) + 1):
-                        if ' '.join(words[i:i+len(pattern_words)]).lower() == pattern.strip():
-                            if i + len(pattern_words) < len(words):
-                                # Take the next 1-2 words as name
-                                name_parts = []
-                                for j in range(min(2, len(words) - i - len(pattern_words))):
-                                    word = words[i + len(pattern_words) + j].strip('.,!?')
-                                    if word and not word.lower() in {'a', 'an', 'the', 'and'}:
-                                        name_parts.append(word)
-                                if name_parts:
-                                    result["name"] = ' '.join(name_parts)
-                                    break
-                    if "name" in result:
-                        break
+            # Create client with API key
+            client = genai.Client(api_key=self.api_key)
             
-            # Extract years of experience - look for numbers + "years"
-            import re
-            exp_match = re.search(r'(\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|\d+)\b)\s*(?:years?|yrs?)(?:\s+(?:of\s+)?(?:experience|exp))?', user_lower)
-            if exp_match:
-                exp_text = exp_match.group(1)
-                # Convert word numbers to digits
-                word_to_num = {
-                    'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
-                    'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
-                    'eleven': 11, 'twelve': 12, 'thirteen': 13, 'fourteen': 14, 'fifteen': 15,
-                    'sixteen': 16, 'seventeen': 17, 'eighteen': 18, 'nineteen': 19, 'twenty': 20
-                }
-                if exp_text in word_to_num:
-                    result["years_experience"] = word_to_num[exp_text]
-                elif exp_text.isdigit():
-                    result["years_experience"] = int(exp_text)
+            # Convert messages to content text (combine all messages into one prompt)
+            content_parts = []
+            for msg in messages:
+                if msg.get('role') == 'user':
+                    content_parts.append(msg.get('content', ''))
             
-            # Extract current role/position
-            role_patterns = [
-                "software engineer", "software developer", "web developer", "full stack developer",
-                "backend developer", "frontend developer", "senior developer", "lead developer",
-                "principal engineer", "staff engineer", "engineering manager", "tech lead",
-                "data scientist", "data analyst", "product manager", "designer", "architect"
-            ]
-            for pattern in role_patterns:
-                if pattern in user_lower:
-                    # Capitalize properly
-                    result["current_role"] = ' '.join(word.capitalize() for word in pattern.split())
-                    break
+            full_content = '\n\n'.join(content_parts)
+            logger.info(f"[EXTRACTION_LLM] Sending content to Gemini: {full_content[:200]}...")
             
-            # Extract work preference
-            if "remote" in user_lower and ("prefer" in user_lower or "want" in user_lower or "work" in user_lower):
-                result["work_preference"] = "remote"
-            elif "hybrid" in user_lower:
-                result["work_preference"] = "hybrid"
-            elif "onsite" in user_lower or "office" in user_lower:
-                result["work_preference"] = "onsite"
+            # Make the API call using Gemini 2.5 Flash (recommended for 2025)
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=full_content,
+                config=genai.types.GenerateContentConfig(
+                    temperature=0.1,  # Low temperature for consistent extraction
+                    max_output_tokens=500,
+                    candidate_count=1
+                )
+            )
             
-            # Extract skills - look for common tech terms
-            tech_skills = [
-                "python", "javascript", "typescript", "java", "c++", "c#", "go", "rust", "php",
-                "react", "angular", "vue", "node", "express", "django", "flask", "spring",
-                "sql", "mysql", "postgresql", "mongodb", "redis", "aws", "azure", "gcp",
-                "docker", "kubernetes", "git", "linux", "html", "css", "sass"
-            ]
-            found_skills = [skill for skill in tech_skills if skill in user_lower]
-            if found_skills:
-                result["skills"] = found_skills
-            
-            # Extract salary expectations
-            salary_match = re.search(r'\$([0-9,]+)(?:k|000)?|([0-9,]+)(?:k|000)\s*(?:dollars?)?', user_lower)
-            if salary_match or "salary" in user_lower or "pay" in user_lower:
-                if salary_match:
-                    result["salary_expectation"] = f"${salary_match.group(1) or salary_match.group(2)}"
-                else:
-                    result["salary_expectation"] = "Discussed salary expectations"
-            
-            logger.info(f"[EXTRACTION_LLM] Extracted: {result}")
-            return json.dumps(result)
+            response_text = response.text or "{}"
+            logger.info(f"[EXTRACTION_LLM] Gemini response: {response_text}")
+            return response_text
             
         except Exception as e:
-            logger.error(f"[EXTRACTION_LLM] Error: {e}")
+            logger.error(f"[EXTRACTION_LLM] Gemini call failed: {e}")
             return "{}"
     
     async def update_interview_data(self, extracted_data: Dict) -> None:
@@ -303,29 +274,53 @@ Now extract information from this user response:
         # Only process TextFrames from STT (user speech)
         if isinstance(frame, TextFrame) and direction == FrameDirection.DOWNSTREAM:
             text = frame.text.strip()
-            logger.info(f"[EXTRACTOR_FRAME] Received user text: '{text}'")
+            if text:
+                logger.info(f"[EXTRACTOR_FRAME] Received user text: '{text}'")
+                await self._add_to_sentence_buffer(text)
+        
+        # Always pass frame through
+        await self.push_frame(frame, direction)
+    
+    async def _add_to_sentence_buffer(self, text: str):
+        """Add text to sentence buffer and process when complete."""
+        import time
+        current_time = time.time()
+        
+        # Add text to buffer
+        self._sentence_buffer.append(text)
+        self._last_text_time = current_time
+        
+        logger.info(f"[SENTENCE_BUFFER] Added: '{text}' (buffer size: {len(self._sentence_buffer)})")
+        
+        # Schedule buffer processing after timeout
+        asyncio.create_task(self._process_buffer_after_delay())
+    
+    async def _process_buffer_after_delay(self):
+        """Process buffer after delay if no new text arrives."""
+        await asyncio.sleep(self._sentence_timeout)
+        
+        import time
+        if time.time() - self._last_text_time >= self._sentence_timeout and self._sentence_buffer:
+            # Combine buffer into sentence
+            combined_text = ' '.join(self._sentence_buffer).strip()
+            self._sentence_buffer.clear()
             
-            # Check if we should extract from this text
-            should_extract = await self.should_extract(text)
-            logger.info(f"[EXTRACTOR_FRAME] Should extract: {should_extract} (text length: {len(text)})")
+            logger.info(f"[SENTENCE_BUFFER] Processing combined text: '{combined_text}'")
+            
+            # Check if we should extract from combined text
+            should_extract = await self.should_extract(combined_text)
             
             if should_extract:
                 # Check if we have too many concurrent extractions
                 if len(self._extraction_tasks) >= self._max_concurrent_extractions:
-                    logger.warning(f"[EXTRACTOR_FRAME] Too many concurrent extractions ({len(self._extraction_tasks)}), skipping: '{text}'")
+                    logger.warning(f"[EXTRACTOR_FRAME] Too many concurrent extractions ({len(self._extraction_tasks)}), skipping: '{combined_text}'")
                 else:
-                    logger.info(f"[EXTRACTOR_FRAME] Creating background extraction task for: '{text}'")
+                    logger.info(f"[EXTRACTOR_FRAME] Creating background extraction task for: '{combined_text}'")
                     # Extract information in the background
-                    task = asyncio.create_task(self._extract_and_update_with_cleanup(text))
+                    task = asyncio.create_task(self._extract_and_update_with_cleanup(combined_text))
                     self._extraction_tasks.add(task)
             else:
-                logger.info(f"[EXTRACTOR_FRAME] Skipping extraction (too short or common phrase)")
-        # Skip logging for audio frames to reduce spam
-        elif not isinstance(frame, TextFrame):
-            pass  # Don't log audio frames
-        
-        # Always pass frame through
-        await self.push_frame(frame, direction)
+                logger.info(f"[EXTRACTOR_FRAME] Skipping extraction from combined text")
     
     async def _extract_and_update(self, text: str) -> None:
         """Background task to extract and update information."""

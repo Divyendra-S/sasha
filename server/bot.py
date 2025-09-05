@@ -66,8 +66,16 @@ async def run_bot(transport: BaseTransport):
     interview_data = InterviewData()
     flow_manager = InterviewFlowManager(interview_data)
 
-    # Initialize services
-    stt = DeepgramSTTService(api_key=os.getenv("DEEPGRAM_API_KEY"))
+    # Initialize services with better configuration for complete sentences
+    stt = DeepgramSTTService(
+        api_key=os.getenv("DEEPGRAM_API_KEY"),
+        options={
+            "punctuate": True,
+            "smart_format": True,
+            "utterances": True,  # Better sentence detection
+            "interim_results": False  # Wait for complete sentences
+        }
+    )
     
     llm = OpenAILLMService(
         api_key=os.getenv("GOOGLE_API_KEY"),
@@ -121,29 +129,16 @@ Remember: Your success is measured by how completely you gather the 6 required p
 
     rtvi = RTVIProcessor(config=RTVIConfig(config=[]))
 
-    # Create parallel pipeline
-    # Branch 1: Main conversation flow (STT → Context → LLM → TTS)
-    # Branch 2: Information extraction (STT → Extractor)
-    parallel_pipeline = ParallelPipeline(
-        # Branch 1: Main conversation
-        [
-            context_aggregator.user(),
-            llm,
-            tts,
-            context_aggregator.assistant(),
-        ],
-        # Branch 2: Information extraction
-        [
-            extractor,
-        ]
-    )
-
-    # Main pipeline
+    # Main pipeline with extraction
     pipeline = Pipeline([
         transport.input(),
         rtvi,
         stt,
-        parallel_pipeline,
+        extractor,  # Extract from speech (with improved filtering)
+        context_aggregator.user(),
+        llm,
+        tts,
+        context_aggregator.assistant(),
         transport.output(),
     ])
 
