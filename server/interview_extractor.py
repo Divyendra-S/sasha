@@ -1,8 +1,8 @@
 """
-Interview Information Extractor
+Job Description Information Extractor
 
 This module provides a frame processor that extracts structured information
-from user speech during an interview using LLM-based extraction.
+from user speech during job description creation using LLM-based extraction.
 """
 
 import asyncio
@@ -18,15 +18,19 @@ from pipecat.services.openai.llm import OpenAILLMService
 
 
 @dataclass
-class InterviewData:
-    """Data structure to track interview information."""
+class JDData:
+    """Data structure to track job description information."""
     
-    name: Optional[str] = None
-    years_experience: Optional[int] = None
-    current_role: Optional[str] = None
-    skills: Optional[List[str]] = None
-    salary_expectation: Optional[str] = None
-    work_preference: Optional[str] = None
+    job_title: Optional[str] = None
+    company_name: Optional[str] = None
+    required_qualifications: Optional[str] = None
+    responsibilities: Optional[str] = None
+    technical_skills: Optional[List[str]] = None
+    preferred_qualifications: Optional[str] = None
+    salary_range: Optional[str] = None
+    work_arrangement: Optional[str] = None
+    team_size: Optional[str] = None
+    growth_opportunities: Optional[str] = None
     
     # Internal tracking
     _collected_fields: Set[str] = field(default_factory=set)
@@ -34,8 +38,12 @@ class InterviewData:
     
     def get_missing_fields(self) -> List[str]:
         """Get list of fields that haven't been collected yet."""
-        all_fields = {"name", "years_experience", "current_role", "skills", "salary_expectation", "work_preference"}
+        all_fields = {"job_title", "company_name", "required_qualifications", "responsibilities", "technical_skills", "preferred_qualifications", "salary_range", "work_arrangement", "team_size", "growth_opportunities"}
         return list(all_fields - self._collected_fields)
+    
+    def get_all_fields(self) -> List[str]:
+        """Get list of all trackable fields."""
+        return ["job_title", "company_name", "required_qualifications", "responsibilities", "technical_skills", "preferred_qualifications", "salary_range", "work_arrangement", "team_size", "growth_opportunities"]
     
     def is_complete(self) -> bool:
         """Check if all required information has been collected."""
@@ -53,37 +61,38 @@ class InterviewData:
                 setattr(self, field_name, value)
                 self._collected_fields.add(field_name)
                 
+                total_fields = len(self.get_all_fields())
                 if old_value != value:
-                    logger.info(f"[INTERVIEW_DATA] ✨ COLLECTED: {field_name} = '{value}' (was: {old_value})")
-                    completion_pct = (len(self._collected_fields) / 6) * 100
-                    logger.info(f"[INTERVIEW_DATA] Progress: {completion_pct:.0f}% complete ({len(self._collected_fields)}/6 fields)")
-                    logger.info(f"[INTERVIEW_DATA] Still missing: {self.get_missing_fields()}")
+                    logger.info(f"[JD_DATA] ✨ COLLECTED: {field_name} = '{value}' (was: {old_value})")
+                    completion_pct = (len(self._collected_fields) / total_fields) * 100
+                    logger.info(f"[JD_DATA] Progress: {completion_pct:.0f}% complete ({len(self._collected_fields)}/{total_fields} fields)")
+                    logger.info(f"[JD_DATA] Still missing: {self.get_missing_fields()}")
                     
                     # Console log for client-side visibility
-                    print(f"\n🎯 CLIENT CONSOLE: INTERVIEW DATA COLLECTED")
+                    print(f"\n🎯 CLIENT CONSOLE: JOB DESCRIPTION DATA COLLECTED")
                     print(f"📊 Field: {field_name}")  
                     print(f"💾 Value: {value}")
-                    print(f"📈 Progress: {completion_pct:.0f}% ({len(self._collected_fields)}/6 fields)")
+                    print(f"📈 Progress: {completion_pct:.0f}% ({len(self._collected_fields)}/{total_fields} fields)")
                     print(f"❌ Missing: {self.get_missing_fields()}\n")
                 else:
-                    logger.info(f"[INTERVIEW_DATA] Confirmed existing value for {field_name}: '{value}'")
+                    logger.info(f"[JD_DATA] Confirmed existing value for {field_name}: '{value}'")
                 return True
             else:
-                logger.debug(f"[INTERVIEW_DATA] Skipped empty/null value for {field_name}: {value}")
+                logger.debug(f"[JD_DATA] Skipped empty/null value for {field_name}: {value}")
             return False
 
 
-class InterviewExtractor(FrameProcessor):
+class JDExtractor(FrameProcessor):
     """
     Frame processor that extracts structured information from user speech.
     
     This processor runs in parallel with the main conversation flow and
-    extracts interview-relevant information using an LLM.
+    extracts job description-relevant information using an LLM.
     """
     
-    def __init__(self, interview_data: InterviewData, api_key: str):
+    def __init__(self, jd_data: JDData, api_key: str):
         super().__init__()
-        self.interview_data = interview_data
+        self.jd_data = jd_data
         self._extraction_tasks = set()  # Track active extraction tasks
         self._max_concurrent_extractions = 3  # Limit concurrent extractions
         self.api_key = api_key  # Store API key for direct Gemini calls
@@ -94,24 +103,31 @@ class InterviewExtractor(FrameProcessor):
         self._sentence_timeout = 3.0  # seconds to wait before processing buffer
         
         self.extraction_prompt = """
-You are an information extraction system for technical interviews. Extract structured information from user responses.
+You are an information extraction system for job description creation. Extract structured information from hiring manager responses.
 
 Extract the following fields from the user's response (only if explicitly mentioned):
-- name: Full name of the person
-- years_experience: Total years of professional experience (as integer)
-- current_role: Current job title/position
-- skills: List of technical skills mentioned
-- salary_expectation: Expected salary or salary range
-- work_preference: Work arrangement preference (remote, hybrid, onsite)
+- job_title: The job title/position being created (e.g., "Senior Software Engineer", "Marketing Manager")
+- company_name: Name of the company
+- required_qualifications: Required education, experience, or certifications
+- responsibilities: Key job duties and responsibilities
+- technical_skills: List of required technical skills, programming languages, tools, or technologies
+- preferred_qualifications: Nice-to-have qualifications or experience
+- salary_range: Salary range or compensation details
+- work_arrangement: Work setup (remote, hybrid, onsite)
+- team_size: Size of the team or reporting structure
+- growth_opportunities: Career development or growth opportunities
 
 Return ONLY a JSON object with the extracted fields. If no relevant information is found, return an empty JSON object {}.
 
 Examples:
-User: "Hi, I'm John Smith and I have 5 years of experience in software development"
-Response: {"name": "John Smith", "years_experience": 5}
+User: "We're looking to hire a Senior React Developer for our fintech startup"
+Response: {"job_title": "Senior React Developer", "company_name": "fintech startup"}
 
-User: "I work as a Senior Python Developer and I'm looking for remote work"
-Response: {"current_role": "Senior Python Developer", "work_preference": "remote"}
+User: "They need 5+ years of experience with React, Node.js, and TypeScript. Remote work is fine."
+Response: {"required_qualifications": "5+ years of experience", "technical_skills": ["React", "Node.js", "TypeScript"], "work_arrangement": "remote"}
+
+User: "The salary range is $120k to $150k"
+Response: {"salary_range": "$120k to $150k"}
 
 User: "Yes, that sounds good"
 Response: {}
@@ -132,10 +148,12 @@ Now extract information from this user response:
             logger.debug(f"[EXTRACTION_FILTER] Skipping common phrase or single word: '{text}'")
             return False
         
-        # Only extract if it might contain meaningful info (names, numbers, tech terms)
+        # Only extract if it might contain meaningful JD info
         has_potential_info = any(keyword in text_lower for keyword in [
-            'name', 'experience', 'year', 'work', 'skill', 'salary', 'remote', 'hybrid', 'onsite',
-            'developer', 'engineer', 'python', 'javascript', 'java', 'react', 'node'
+            'job', 'title', 'position', 'role', 'company', 'experience', 'year', 'skill', 'salary', 'compensation',
+            'remote', 'hybrid', 'onsite', 'team', 'developer', 'engineer', 'manager', 'analyst', 'specialist',
+            'python', 'javascript', 'java', 'react', 'node', 'aws', 'kubernetes', 'docker', 'responsibilities',
+            'qualifications', 'requirements', 'bachelor', 'master', 'degree', 'certification'
         ])
         
         if not has_potential_info and len(text.split()) < 3:
@@ -148,7 +166,7 @@ Now extract information from this user response:
     async def extract_information(self, text: str) -> Dict:
         """Extract structured information from text using LLM."""
         try:
-            logger.info(f"[EXTRACTION] 🔍 Processing user input: \"{text[:80]}{'...' if len(text) > 80 else ''}\"")
+            logger.info(f"[EXTRACTION] 🔍 Processing JD input: \"{text[:80]}{'...' if len(text) > 80 else ''}\"")
             
             # Prepare extraction prompt
             full_prompt = self.extraction_prompt + f"\n\nUser response: \"{text}\""
@@ -179,7 +197,7 @@ Now extract information from this user response:
             if extracted_data:
                 logger.info(f"[EXTRACTION] ✅ Successfully extracted: {list(extracted_data.keys())} -> {extracted_data}")
             else:
-                logger.info("[EXTRACTION] No relevant information found in user response")
+                logger.info("[EXTRACTION] No relevant JD information found in user response")
             
             return extracted_data
             
@@ -231,17 +249,21 @@ Now extract information from this user response:
             logger.error(f"[EXTRACTION_LLM] Gemini call failed: {e}")
             return "{}"
     
-    async def update_interview_data(self, extracted_data: Dict) -> None:
-        """Update interview data with extracted information."""
+    async def update_jd_data(self, extracted_data: Dict) -> None:
+        """Update JD data with extracted information."""
         updates_made = []
         ignored_fields = []
         
-        logger.info(f"[EXTRACTION_UPDATE] Processing extracted data: {extracted_data}")
+        logger.info(f"[EXTRACTION_UPDATE] Processing extracted JD data: {extracted_data}")
+        
+        valid_fields = ["job_title", "company_name", "required_qualifications", "responsibilities", 
+                       "technical_skills", "preferred_qualifications", "salary_range", 
+                       "work_arrangement", "team_size", "growth_opportunities"]
         
         for field, value in extracted_data.items():
-            if field in ["name", "years_experience", "current_role", "skills", "salary_expectation", "work_preference"]:
+            if field in valid_fields:
                 logger.info(f"[EXTRACTION_UPDATE] Attempting to update field '{field}' with value: {value}")
-                was_updated = await self.interview_data.update_field(field, value)
+                was_updated = await self.jd_data.update_field(field, value)
                 if was_updated:
                     updates_made.append(f"{field}='{value}'")
                     logger.info(f"[EXTRACTION_UPDATE] ✅ Successfully updated {field} with value: '{value}'")
@@ -255,15 +277,16 @@ Now extract information from this user response:
             logger.info(f"[EXTRACTION_UPDATE] Ignored {len(ignored_fields)} unknown fields: {ignored_fields}")
             
         if updates_made:
-            collected = self.interview_data.get_collected_fields()
-            missing = self.interview_data.get_missing_fields()
+            collected = self.jd_data.get_collected_fields()
+            missing = self.jd_data.get_missing_fields()
+            total_fields = len(self.jd_data.get_all_fields())
             
-            logger.info(f"[INTERVIEW_STATUS] 📈 UPDATED {len(updates_made)} field(s): {updates_made}")
-            logger.info(f"[INTERVIEW_STATUS] Total collected fields with values: {[(field, getattr(self.interview_data, field)) for field in collected]} ({len(collected)}/6)")
-            logger.info(f"[INTERVIEW_STATUS] Still missing: {missing}")
+            logger.info(f"[JD_STATUS] 📈 UPDATED {len(updates_made)} field(s): {updates_made}")
+            logger.info(f"[JD_STATUS] Total collected fields with values: {[(field, getattr(self.jd_data, field)) for field in collected]} ({len(collected)}/{total_fields})")
+            logger.info(f"[JD_STATUS] Still missing: {missing}")
             
-            if self.interview_data.is_complete():
-                logger.info("[INTERVIEW_STATUS] 🎉 ALL INFORMATION COLLECTED! Interview ready for completion.")
+            if self.jd_data.is_complete():
+                logger.info("[JD_STATUS] 🎉 ALL JD INFORMATION COLLECTED! Job description ready for completion.")
         else:
             logger.info("[EXTRACTION_UPDATE] No valid updates made from extracted data")
     
@@ -275,7 +298,7 @@ Now extract information from this user response:
         if isinstance(frame, TextFrame) and direction == FrameDirection.DOWNSTREAM:
             text = frame.text.strip()
             if text:
-                logger.info(f"[EXTRACTOR_FRAME] Received user text: '{text}'")
+                logger.info(f"[EXTRACTOR_FRAME] Received JD creation text: '{text}'")
                 await self._add_to_sentence_buffer(text)
         
         # Always pass frame through
@@ -329,7 +352,7 @@ Now extract information from this user response:
             extracted_data = await self.extract_information(text)
             if extracted_data:
                 logger.info(f"[EXTRACTION_TASK] Found data to process: {extracted_data}")
-                await self.update_interview_data(extracted_data)
+                await self.update_jd_data(extracted_data)
                 logger.info("[EXTRACTION_TASK] Background extraction completed successfully")
             else:
                 logger.info("[EXTRACTION_TASK] No extractable data found, task complete")
@@ -348,13 +371,13 @@ Now extract information from this user response:
                 logger.debug(f"[EXTRACTION_TASK] Cleaned up task, {len(self._extraction_tasks)} remaining")
 
 
-class InterviewFlowManager:
+class JDFlowManager:
     """
-    Manages the interview flow and provides guidance based on collected information.
+    Manages the job description creation flow and provides guidance based on collected information.
     """
     
-    def __init__(self, interview_data: InterviewData):
-        self.interview_data = interview_data
+    def __init__(self, jd_data: JDData):
+        self.jd_data = jd_data
         self.last_guidance_time = 0
         self.guidance_interval = 45  # seconds - increased to reduce frequency
         self.guidance_attempts = {}
@@ -444,7 +467,7 @@ class InterviewFlowManager:
     
     def mark_guidance_attempt(self):
         """Mark that guidance was attempted."""
-        missing_fields = self.interview_data.get_missing_fields()
+        missing_fields = self.jd_data.get_missing_fields()
         if missing_fields:
             field = missing_fields[0]  # Focus on first missing field
             old_attempts = self.guidance_attempts.get(field, 0)
@@ -465,7 +488,7 @@ class InterviewFlowManager:
             return False
             
         # If the field is no longer missing, we made progress
-        missing_fields = self.interview_data.get_missing_fields()
+        missing_fields = self.jd_data.get_missing_fields()
         if self.last_guidance_field not in missing_fields:
             logger.info(f"[FLOW_GUIDANCE] ✅ Progress made! Field '{self.last_guidance_field}' was collected")
             self.mark_guidance_processed()
@@ -477,3 +500,9 @@ class InterviewFlowManager:
     def should_escalate_guidance(self, field: str) -> bool:
         """Check if we should escalate guidance for a specific field."""
         return self.guidance_attempts.get(field, 0) >= self.max_attempts_per_field
+
+
+# Backward compatibility aliases
+InterviewData = JDData
+InterviewExtractor = JDExtractor  
+InterviewFlowManager = JDFlowManager

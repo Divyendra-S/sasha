@@ -167,7 +167,7 @@ Output as structured JSON
 
 - Real-time updates from voice to editor
 - Auto-save functionality
-- State management (Zustand/Redux)
+- State management (Jotai)
 
 ### API Endpoints
 
