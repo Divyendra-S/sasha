@@ -30,8 +30,7 @@ export default function Home() {
               {/* Voice Chat Panel - 2/5 width */}
               <div className="lg:col-span-2">
                 <VoiceChat />
-              </div>
-              
+              </div> 
               {/* Job Description Editor Panel - 3/5 width */}
               <div className="lg:col-span-3">
                 <ClientJobEditor />

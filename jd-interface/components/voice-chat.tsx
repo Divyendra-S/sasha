@@ -6,6 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { useVoiceChat } from "@/hooks/use-voice-chat";
+import { useSetAtom } from "jotai";
+import { bulkUpdateJDAtom } from "@/stores/jd-atoms";
 import { cn } from "@/lib/utils";
 
 export function VoiceChat() {
@@ -21,6 +23,34 @@ export function VoiceChat() {
     isListening,
     isProcessing,
   } = useVoiceChat();
+  
+  const bulkUpdateJD = useSetAtom(bulkUpdateJDAtom);
+  
+  const testAPICall = async () => {
+    console.log('🧪 Testing API call manually...');
+    try {
+      const response = await fetch('http://localhost:7861/api/jd-data');
+      console.log('🧪 API Response status:', response.status);
+      
+      if (response.ok) {
+        const result = await response.json();
+        console.log('🧪 API Result:', result);
+        
+        if (result.success && result.data) {
+          console.log('🧪 Calling bulkUpdateJD with:', result.data);
+          bulkUpdateJD(result.data);
+          alert('✅ Successfully fetched and updated JD data!');
+        } else {
+          alert('⚠️ API returned no data');
+        }
+      } else {
+        alert(`❌ API call failed: ${response.status}`);
+      }
+    } catch (error) {
+      console.error('🧪 API call error:', error);
+      alert(`❌ API call error: ${error}`);
+    }
+  };
   
 
   const getConnectionStatus = () => {
@@ -152,6 +182,18 @@ export function VoiceChat() {
             </ScrollArea>
           </div>
         )}
+
+        {/* Test Button */}
+        <div className="border-t pt-4 mt-4">
+          <Button 
+            onClick={testAPICall}
+            variant="outline"
+            size="sm"
+            className="w-full"
+          >
+            🧪 Test API Connection
+          </Button>
+        </div>
 
         {/* Instructions */}
         {!isConnected && !isConnecting && !error && (

@@ -56,6 +56,8 @@ from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.network.small_webrtc import SmallWebRTCTransport
 
 from interview_extractor import JDData, JDExtractor, JDFlowManager
+from jd_api_server import JDAPIServer
+from jd_broadcaster import JDDataBroadcaster, create_jd_data_callback
 
 load_dotenv(override=True)
 
@@ -66,6 +68,10 @@ async def run_bot(transport: BaseTransport):
     # Initialize shared JD data
     jd_data = JDData()
     flow_manager = JDFlowManager(jd_data)
+    
+    # Start API server for JD data access
+    api_server = JDAPIServer(jd_data, port=7861)
+    api_server.start()
 
     # Initialize services with better configuration for complete sentences
     stt = DeepgramSTTService(
@@ -142,13 +148,34 @@ Remember: Your success is measured by how complete and detailed the job descript
     context_aggregator = llm.create_context_aggregator(context)
 
     rtvi = RTVIProcessor(config=RTVIConfig(config=[]))
+    
+    # Initialize JD data broadcaster
+    jd_broadcaster = JDDataBroadcaster(rtvi, transport)
+    jd_update_callback = create_jd_data_callback(jd_broadcaster, jd_data)
+    
+    # Add callback to JD data for real-time updates
+    def sync_callback(field_name: str, field_value: any):
+        """Synchronous wrapper for async callback."""
+        try:
+            # Create task in the current event loop
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(jd_update_callback(field_name, field_value))
+            else:
+                logger.warning("[JD_CALLBACK] Event loop not running, skipping async callback")
+        except Exception as e:
+            logger.error(f"[JD_CALLBACK] Error creating async task: {e}")
+    
+    jd_data.add_update_callback(sync_callback)
+    logger.info("[BOT] JD data callback registered successfully")
 
-    # Main pipeline with extraction
+    # Main pipeline with extraction and broadcasting
     pipeline = Pipeline([
         transport.input(),
         rtvi,
         stt,
         extractor,  # Extract from speech (with improved filtering)
+        jd_broadcaster,  # Broadcast JD updates to frontend
         context_aggregator.user(),
         llm,
         tts,
@@ -216,6 +243,9 @@ Remember: Your success is measured by how complete and detailed the job descript
         # Log guidance attempt summary
         if hasattr(flow_manager, 'guidance_attempts') and flow_manager.guidance_attempts:
             logger.info(f"[JD_FINAL] 🎯 Guidance attempts: {dict(flow_manager.guidance_attempts)}")
+        
+        # Stop API server
+        api_server.stop()
         
         logger.info("[JD_FINAL] 🔄 Cancelling pipeline task...")
         await task.cancel()

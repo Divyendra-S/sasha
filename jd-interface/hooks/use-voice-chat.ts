@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { usePipecatClient } from "@pipecat-ai/client-react";
 import { useAtom, useSetAtom } from "jotai";
-import { voiceSessionAtom, updateVoiceStatusAtom, addVoiceMessageAtom } from "@/stores/jd-atoms";
+import { voiceSessionAtom, updateVoiceStatusAtom, addVoiceMessageAtom, updateJDAtom, bulkUpdateJDAtom } from "@/stores/jd-atoms";
 
 export interface Message {
   id: string;
@@ -17,10 +17,13 @@ export function useVoiceChat() {
   const [voiceSession, setVoiceSession] = useAtom(voiceSessionAtom);
   const updateVoiceStatus = useSetAtom(updateVoiceStatusAtom);
   const addVoiceMessage = useSetAtom(addVoiceMessageAtom);
+  const updateJD = useSetAtom(updateJDAtom);
+  const bulkUpdateJD = useSetAtom(bulkUpdateJDAtom);
   
   const [messages, setMessages] = useState<Message[]>([]);
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isPollingJDData, setIsPollingJDData] = useState(false);
 
   const addMessage = useCallback((role: "user" | "assistant", content: string) => {
     const newMessage: Message = {
@@ -208,8 +211,41 @@ export function useVoiceChat() {
       updateVoiceStatus({ isProcessing: false });
     };
 
+    const handleJDDataUpdate = (data: any) => {
+      console.log("🎯 JD Data Update received:", data);
+      
+      try {
+        // Handle different possible data structures
+        let jdData = data;
+        if (data?.data?.completeData) {
+          jdData = data.data.completeData;
+        } else if (data?.completeData) {
+          jdData = data.completeData;
+        }
+        
+        if (jdData && typeof jdData === 'object') {
+          console.log("✅ Updating JD with:", jdData);
+          bulkUpdateJD(jdData);
+          
+          // Show user feedback
+          const fieldName = data?.data?.fieldName || data?.fieldName || 'Unknown';
+          const fieldValue = data?.data?.fieldValue || data?.fieldValue || 'Updated';
+          console.log(`🔄 JD Field Updated: ${fieldName} = ${fieldValue}`);
+        }
+      } catch (error) {
+        console.error("❌ Error processing JD data update:", error);
+      }
+    };
+
     const handleServerMessage = (data: any) => {
       console.log("📨 Generic server message:", data);
+      
+      // Check if this is a JD data update message
+      if (data?.type === 'jd-data-update' || data?.data?.type === 'jd-data-update') {
+        handleJDDataUpdate(data);
+        return;
+      }
+      
       // This is a fallback for any messages we might not be handling specifically
     };
 
@@ -240,6 +276,7 @@ export function useVoiceChat() {
     client.on("userStoppedSpeaking", handleUserStoppedSpeaking);
     client.on("botStartedSpeaking", handleBotStartedSpeaking);
     client.on("botStoppedSpeaking", handleBotStoppedSpeaking);
+    // Note: jdDataUpdate events will be handled via serverMessage
     client.on("serverMessage", handleServerMessage); // Fallback handler
     client.on("error", handleError); // Error handler
 
@@ -252,10 +289,76 @@ export function useVoiceChat() {
       client.off("userStoppedSpeaking", handleUserStoppedSpeaking);
       client.off("botStartedSpeaking", handleBotStartedSpeaking);
       client.off("botStoppedSpeaking", handleBotStoppedSpeaking);
+      // Note: jdDataUpdate events are handled via serverMessage
       client.off("serverMessage", handleServerMessage);
       client.off("error", handleError);
     };
   }, [client, updateVoiceStatus, addMessage]);
+
+  // Polling mechanism for JD data as fallback
+  useEffect(() => {
+    let pollingInterval: NodeJS.Timeout | undefined;
+    
+    const fetchJDData = async () => {
+      try {
+        console.log('🔍 Polling JD data from API...');
+        const response = await fetch('http://localhost:7861/api/jd-data');
+        console.log('🎯 API Response status:', response.status);
+        
+        if (response.ok) {
+          const result = await response.json();
+          console.log('📊 Full API result:', result);
+          
+          if (result.success && result.data) {
+            console.log('✅ SUCCESS: Fetched JD data from API:', result.data);
+            console.log('🔍 Extracted fields:', result.extractedFields);
+            console.log('📊 Current title value:', result.data.title);
+            console.log('📊 Current company value:', result.data.company);
+            console.log('📊 Current salary value:', result.data.salaryRange);
+            
+            console.log('🔄 About to call bulkUpdateJD with:', result.data);
+            bulkUpdateJD(result.data);
+            console.log('✅ bulkUpdateJD call completed');
+          } else {
+            console.log('⚠️ API response but no data:', result);
+          }
+        } else {
+          console.log('❌ API response failed:', response.status, response.statusText);
+        }
+      } catch (error) {
+        // Don't silently fail - let's see what's happening
+        console.log('❌ JD data polling failed:', error);
+      }
+    };
+    
+    // For testing: start polling regardless of connection status
+    // if (voiceSession.isConnected && !isPollingJDData) {
+    if (!isPollingJDData) {
+      setIsPollingJDData(true);
+      pollingInterval = setInterval(fetchJDData, 1000); // Poll every 1 second for faster updates
+      console.log('🔄 Started JD data polling - interval created');
+      // Also fetch immediately
+      fetchJDData();
+    } 
+    // Temporarily disable stopping polling for testing
+    // else if (!voiceSession.isConnected && isPollingJDData) {
+    else if (false) {
+      setIsPollingJDData(false);
+      console.log('⏹️ Stopped JD data polling');
+    }
+    
+    console.log('📊 Polling status:', {
+      isConnected: voiceSession.isConnected,
+      isPollingJDData,
+      hasInterval: !!pollingInterval
+    });
+    
+    return () => {
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+      }
+    };
+  }, [isPollingJDData, bulkUpdateJD]); // Removed isConnected for testing
 
   return {
     messages,

@@ -8,8 +8,9 @@ from user speech during job description creation using LLM-based extraction.
 import asyncio
 import json
 import os
+import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Callable
 
 from loguru import logger
 from pipecat.frames.frames import Frame, TextFrame
@@ -21,29 +22,85 @@ from pipecat.services.openai.llm import OpenAILLMService
 class JDData:
     """Data structure to track job description information."""
     
-    job_title: Optional[str] = None
-    company_name: Optional[str] = None
-    required_qualifications: Optional[str] = None
-    responsibilities: Optional[str] = None
+    # Core fields matching frontend
+    job_title: Optional[str] = None  # Maps to frontend 'title'
+    company_name: Optional[str] = None  # Maps to frontend 'company'
+    responsibilities: Optional[str] = None  # Maps to frontend 'description'
+    required_qualifications: Optional[str] = None  # Will be split into frontend 'requirements' list
+    preferred_qualifications: Optional[str] = None  # Will be split into frontend 'benefits' list
+    work_arrangement: Optional[str] = None  # Maps to frontend 'location'
+    salary_range: Optional[str] = None  # Maps to frontend 'salaryRange'
+    employment_type: Optional[str] = None  # Maps to frontend 'employmentType'
+    
+    # Additional fields for comprehensive JD creation
     technical_skills: Optional[List[str]] = None
-    preferred_qualifications: Optional[str] = None
-    salary_range: Optional[str] = None
-    work_arrangement: Optional[str] = None
     team_size: Optional[str] = None
     growth_opportunities: Optional[str] = None
+    department: Optional[str] = None
+    experience_level: Optional[str] = None
+    education_requirements: Optional[str] = None
     
     # Internal tracking
     _collected_fields: Set[str] = field(default_factory=set)
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    _update_callbacks: List[Callable] = field(default_factory=list, init=False, repr=False)
+    
+    def add_update_callback(self, callback: Callable[[str, any], None]):
+        """Add a callback that will be called when any field is updated."""
+        self._update_callbacks.append(callback)
+        logger.info(f"[JD_DATA] Added update callback, total callbacks: {len(self._update_callbacks)}")
     
     def get_missing_fields(self) -> List[str]:
         """Get list of fields that haven't been collected yet."""
-        all_fields = {"job_title", "company_name", "required_qualifications", "responsibilities", "technical_skills", "preferred_qualifications", "salary_range", "work_arrangement", "team_size", "growth_opportunities"}
+        all_fields = {"job_title", "company_name", "required_qualifications", "responsibilities", 
+                     "technical_skills", "preferred_qualifications", "salary_range", "work_arrangement", 
+                     "employment_type", "team_size", "growth_opportunities", "department", 
+                     "experience_level", "education_requirements"}
         return list(all_fields - self._collected_fields)
     
     def get_all_fields(self) -> List[str]:
         """Get list of all trackable fields."""
-        return ["job_title", "company_name", "required_qualifications", "responsibilities", "technical_skills", "preferred_qualifications", "salary_range", "work_arrangement", "team_size", "growth_opportunities"]
+        return ["job_title", "company_name", "required_qualifications", "responsibilities", 
+               "technical_skills", "preferred_qualifications", "salary_range", "work_arrangement", 
+               "employment_type", "team_size", "growth_opportunities", "department", 
+               "experience_level", "education_requirements"]
+    
+    def to_frontend_format(self) -> Dict:
+        """Convert JD data to frontend format for the job description editor."""
+        # Convert qualifications and benefits to lists
+        requirements = []
+        if self.required_qualifications:
+            requirements = [req.strip() for req in self.required_qualifications.split('\n') if req.strip()]
+        if self.technical_skills:
+            requirements.extend(self.technical_skills)
+        if self.education_requirements:
+            requirements.append(self.education_requirements)
+        
+        benefits = []
+        if self.preferred_qualifications:
+            benefits = [ben.strip() for ben in self.preferred_qualifications.split('\n') if ben.strip()]
+        if self.growth_opportunities:
+            benefits.append(self.growth_opportunities)
+        
+        # Build location string from work arrangement and other details
+        location = self.work_arrangement or ""
+        if self.department:
+            location = f"{self.department}, {location}" if location else self.department
+        
+        return {
+            "title": self.job_title or "",
+            "company": self.company_name or "",
+            "description": self.responsibilities or "",
+            "requirements": requirements,
+            "benefits": benefits,
+            "location": location.strip(", "),
+            "salaryRange": self.salary_range or "",
+            "employmentType": self.employment_type or "Full-time",
+            # Additional data for debugging/info
+            "_extractedFields": list(self._collected_fields),
+            "_completionPercentage": len(self._collected_fields) / len(self.get_all_fields()) * 100,
+            "_lastUpdate": int(time.time() * 1000)
+        }
     
     def is_complete(self) -> bool:
         """Check if all required information has been collected."""
@@ -74,6 +131,13 @@ class JDData:
                     print(f"💾 Value: {value}")
                     print(f"📈 Progress: {completion_pct:.0f}% ({len(self._collected_fields)}/{total_fields} fields)")
                     print(f"❌ Missing: {self.get_missing_fields()}\n")
+                    
+                    # Notify callbacks of the update
+                    for callback in self._update_callbacks:
+                        try:
+                            callback(field_name, value)
+                        except Exception as e:
+                            logger.error(f"[JD_DATA] Error in update callback: {e}")
                 else:
                     logger.info(f"[JD_DATA] Confirmed existing value for {field_name}: '{value}'")
                 return True
@@ -108,26 +172,30 @@ You are an information extraction system for job description creation. Extract s
 Extract the following fields from the user's response (only if explicitly mentioned):
 - job_title: The job title/position being created (e.g., "Senior Software Engineer", "Marketing Manager")
 - company_name: Name of the company
-- required_qualifications: Required education, experience, or certifications
-- responsibilities: Key job duties and responsibilities
+- responsibilities: Key job duties and responsibilities  
+- required_qualifications: Required education, experience, or certifications (as a single string)
 - technical_skills: List of required technical skills, programming languages, tools, or technologies
-- preferred_qualifications: Nice-to-have qualifications or experience
+- preferred_qualifications: Nice-to-have qualifications or experience (as a single string)
 - salary_range: Salary range or compensation details
-- work_arrangement: Work setup (remote, hybrid, onsite)
+- work_arrangement: Work setup (remote, hybrid, onsite, or specific location)
+- employment_type: Employment type (full-time, part-time, contract, internship)
 - team_size: Size of the team or reporting structure
 - growth_opportunities: Career development or growth opportunities
+- department: Department or division (e.g., "Engineering", "Marketing", "Sales")
+- experience_level: Level of experience required (e.g., "entry-level", "mid-level", "senior")
+- education_requirements: Educational requirements (e.g., "Bachelor's degree", "Master's preferred")
 
 Return ONLY a JSON object with the extracted fields. If no relevant information is found, return an empty JSON object {}.
 
 Examples:
 User: "We're looking to hire a Senior React Developer for our fintech startup"
-Response: {"job_title": "Senior React Developer", "company_name": "fintech startup"}
+Response: {"job_title": "Senior React Developer", "company_name": "fintech startup", "experience_level": "senior"}
 
 User: "They need 5+ years of experience with React, Node.js, and TypeScript. Remote work is fine."
 Response: {"required_qualifications": "5+ years of experience", "technical_skills": ["React", "Node.js", "TypeScript"], "work_arrangement": "remote"}
 
-User: "The salary range is $120k to $150k"
-Response: {"salary_range": "$120k to $150k"}
+User: "The salary range is $120k to $150k for this full-time Engineering position"
+Response: {"salary_range": "$120k to $150k", "employment_type": "full-time", "department": "Engineering"}
 
 User: "Yes, that sounds good"
 Response: {}
@@ -251,7 +319,8 @@ Now extract information from this user response:
         
         valid_fields = ["job_title", "company_name", "required_qualifications", "responsibilities", 
                        "technical_skills", "preferred_qualifications", "salary_range", 
-                       "work_arrangement", "team_size", "growth_opportunities"]
+                       "work_arrangement", "employment_type", "team_size", "growth_opportunities",
+                       "department", "experience_level", "education_requirements"]
         
         for field, value in extracted_data.items():
             if field in valid_fields:

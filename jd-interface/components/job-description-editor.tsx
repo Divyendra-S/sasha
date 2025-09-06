@@ -1,6 +1,7 @@
 "use client";
 
 import { useAtom, useSetAtom } from "jotai";
+import { useState, useEffect, useRef } from "react";
 import { jobDescriptionAtom, updateJDAtom } from "@/stores/jd-atoms";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -18,12 +19,54 @@ import {
   CheckCircle, 
   Gift,
   Save,
-  Download
+  Download,
+  Sparkles,
+  Zap
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export function JobDescriptionEditor() {
   const [jobDescription] = useAtom(jobDescriptionAtom);
   const updateJD = useSetAtom(updateJDAtom);
+  
+  // Track recently updated fields for visual feedback
+  const [recentlyUpdated, setRecentlyUpdated] = useState<Set<string>>(new Set());
+  const [isAIExtracting, setIsAIExtracting] = useState(false);
+  const prevJobDescription = useRef(jobDescription);
+  
+  // Detect when fields are updated (likely by AI)
+  useEffect(() => {
+    const updatedFields = new Set<string>();
+    
+    // Compare current with previous to find changed fields
+    Object.keys(jobDescription).forEach((key) => {
+      const current = jobDescription[key as keyof typeof jobDescription];
+      const previous = prevJobDescription.current[key as keyof typeof jobDescription];
+      
+      // Check for actual changes
+      if (JSON.stringify(current) !== JSON.stringify(previous)) {
+        // Only highlight if the field has meaningful content
+        if ((typeof current === 'string' && current.trim()) || 
+            (Array.isArray(current) && current.length > 0)) {
+          updatedFields.add(key);
+        }
+      }
+    });
+    
+    if (updatedFields.size > 0) {
+      console.log('✨ Fields updated by AI:', Array.from(updatedFields));
+      setRecentlyUpdated(updatedFields);
+      setIsAIExtracting(true);
+      
+      // Clear the highlight after 3 seconds
+      setTimeout(() => {
+        setRecentlyUpdated(new Set());
+        setIsAIExtracting(false);
+      }, 3000);
+    }
+    
+    prevJobDescription.current = jobDescription;
+  }, [jobDescription]);
 
   const handleInputChange = (field: keyof typeof jobDescription, value: string | string[]) => {
     updateJD({ [field]: value });
@@ -72,6 +115,37 @@ export function JobDescriptionEditor() {
   };
 
   const stats = getCompletionStats();
+  
+  // Helper function to check if a field was recently updated
+  const isFieldRecentlyUpdated = (fieldName: string) => {
+    return recentlyUpdated.has(fieldName);
+  };
+  
+  // Helper function to get field styling
+  const getFieldStyling = (fieldName: string) => {
+    if (isFieldRecentlyUpdated(fieldName)) {
+      return "animate-pulse ring-2 ring-green-400 ring-opacity-75 bg-green-50 border-green-300";
+    }
+    return "";
+  };
+  
+  // Helper function to render field icon with AI indicator
+  const renderFieldWithAI = (fieldName: string, children: React.ReactNode) => {
+    const isUpdated = isFieldRecentlyUpdated(fieldName);
+    return (
+      <div className="relative">
+        {children}
+        {isUpdated && (
+          <div className="absolute -top-2 -right-2 flex items-center gap-1">
+            <Sparkles className="w-4 h-4 text-green-500 animate-spin" />
+            <span className="text-xs text-green-600 bg-green-100 px-1 py-0.5 rounded font-medium">
+              AI
+            </span>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <Card className="h-full flex flex-col">
@@ -80,8 +154,20 @@ export function JobDescriptionEditor() {
           <div className="flex items-center gap-2">
             <FileText className="w-5 h-5" />
             <CardTitle className="text-lg">Job Description</CardTitle>
+            {isAIExtracting && (
+              <div className="flex items-center gap-1 text-green-600">
+                <Zap className="w-4 h-4 animate-pulse" />
+                <span className="text-sm font-medium">AI Extracting...</span>
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-2">
+            {isAIExtracting && (
+              <Badge variant="outline" className="animate-pulse border-green-400 text-green-700">
+                <Sparkles className="w-3 h-3 mr-1" />
+                AI Active
+              </Badge>
+            )}
             <Badge variant="outline">
               {stats.completed}/{stats.total} Complete
             </Badge>
@@ -116,110 +202,131 @@ export function JobDescriptionEditor() {
           {/* Overview Tab */}
           <TabsContent value="overview" className="flex-1 space-y-4">
             <div className="grid gap-4">
-              <div>
-                <label className="text-sm font-medium mb-1 block">Job Title</label>
-                <Input
-                  placeholder="e.g. Senior React Developer"
-                  value={jobDescription.title}
-                  onChange={(e) => handleInputChange('title', e.target.value)}
-                />
-              </div>
+              {renderFieldWithAI('title', 
+                <div>
+                  <label className="text-sm font-medium mb-1 block">Job Title</label>
+                  <Input
+                    placeholder="e.g. Senior React Developer"
+                    value={jobDescription.title}
+                    onChange={(e) => handleInputChange('title', e.target.value)}
+                    className={cn(getFieldStyling('title'))}
+                  />
+                </div>
+              )}
               
-              <div>
-                <label className="text-sm font-medium mb-1 block">Company</label>
-                <Input
-                  placeholder="e.g. Tech Innovations Inc."
-                  value={jobDescription.company}
-                  onChange={(e) => handleInputChange('company', e.target.value)}
-                />
-              </div>
+              {renderFieldWithAI('company',
+                <div>
+                  <label className="text-sm font-medium mb-1 block">Company</label>
+                  <Input
+                    placeholder="e.g. Tech Innovations Inc."
+                    value={jobDescription.company}
+                    onChange={(e) => handleInputChange('company', e.target.value)}
+                    className={cn(getFieldStyling('company'))}
+                  />
+                </div>
+              )}
               
-              <div>
-                <label className="text-sm font-medium mb-1 block">Job Description</label>
-                <Textarea
-                  placeholder="Describe the role, responsibilities, and what makes this position exciting..."
-                  value={jobDescription.description}
-                  onChange={(e) => handleInputChange('description', e.target.value)}
-                  className="min-h-32"
-                />
-              </div>
+              {renderFieldWithAI('description',
+                <div>
+                  <label className="text-sm font-medium mb-1 block">Job Description</label>
+                  <Textarea
+                    placeholder="Describe the role, responsibilities, and what makes this position exciting..."
+                    value={jobDescription.description}
+                    onChange={(e) => handleInputChange('description', e.target.value)}
+                    className={cn("min-h-32", getFieldStyling('description'))}
+                  />
+                </div>
+              )}
             </div>
           </TabsContent>
 
           {/* Requirements Tab */}
           <TabsContent value="requirements" className="flex-1 space-y-4">
-            <div>
-              <label className="text-sm font-medium mb-1 block">
-                Requirements (one per line)
-              </label>
-              <Textarea
-                placeholder="e.g.&#10;5+ years experience with React&#10;Strong knowledge of TypeScript&#10;Experience with Next.js"
-                value={jobDescription.requirements.join('\n')}
-                onChange={(e) => handleRequirementsChange(e.target.value)}
-                className="min-h-48"
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                {jobDescription.requirements.length} requirement{jobDescription.requirements.length !== 1 ? 's' : ''} added
-              </p>
-            </div>
+            {renderFieldWithAI('requirements',
+              <div>
+                <label className="text-sm font-medium mb-1 block">
+                  Requirements (one per line)
+                </label>
+                <Textarea
+                  placeholder="e.g.&#10;5+ years experience with React&#10;Strong knowledge of TypeScript&#10;Experience with Next.js"
+                  value={jobDescription.requirements.join('\n')}
+                  onChange={(e) => handleRequirementsChange(e.target.value)}
+                  className={cn("min-h-48", getFieldStyling('requirements'))}
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  {jobDescription.requirements.length} requirement{jobDescription.requirements.length !== 1 ? 's' : ''} added
+                </p>
+              </div>
+            )}
           </TabsContent>
 
           {/* Benefits Tab */}
           <TabsContent value="benefits" className="flex-1 space-y-4">
-            <div>
-              <label className="text-sm font-medium mb-1 block">
-                Benefits & Perks (one per line)
-              </label>
-              <Textarea
-                placeholder="e.g.&#10;Health, dental, and vision insurance&#10;Flexible work schedule&#10;Remote work options&#10;Professional development budget"
-                value={jobDescription.benefits.join('\n')}
-                onChange={(e) => handleBenefitsChange(e.target.value)}
-                className="min-h-48"
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                {jobDescription.benefits.length} benefit{jobDescription.benefits.length !== 1 ? 's' : ''} added
-              </p>
-            </div>
+            {renderFieldWithAI('benefits',
+              <div>
+                <label className="text-sm font-medium mb-1 block">
+                  Benefits & Perks (one per line)
+                </label>
+                <Textarea
+                  placeholder="e.g.&#10;Health, dental, and vision insurance&#10;Flexible work schedule&#10;Remote work options&#10;Professional development budget"
+                  value={jobDescription.benefits.join('\n')}
+                  onChange={(e) => handleBenefitsChange(e.target.value)}
+                  className={cn("min-h-48", getFieldStyling('benefits'))}
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  {jobDescription.benefits.length} benefit{jobDescription.benefits.length !== 1 ? 's' : ''} added
+                </p>
+              </div>
+            )}
           </TabsContent>
 
           {/* Details Tab */}
           <TabsContent value="details" className="flex-1 space-y-4">
             <div className="grid gap-4">
-              <div>
-                <label className="text-sm font-medium mb-1 block flex items-center gap-1">
-                  <MapPin className="w-3 h-3" />
-                  Location
-                </label>
-                <Input
-                  placeholder="e.g. San Francisco, CA (Remote friendly)"
-                  value={jobDescription.location}
-                  onChange={(e) => handleInputChange('location', e.target.value)}
-                />
-              </div>
+              {renderFieldWithAI('location',
+                <div>
+                  <label className="text-sm font-medium mb-1 block flex items-center gap-1">
+                    <MapPin className="w-3 h-3" />
+                    Location
+                  </label>
+                  <Input
+                    placeholder="e.g. San Francisco, CA (Remote friendly)"
+                    value={jobDescription.location}
+                    onChange={(e) => handleInputChange('location', e.target.value)}
+                    className={cn(getFieldStyling('location'))}
+                  />
+                </div>
+              )}
               
-              <div>
-                <label className="text-sm font-medium mb-1 block flex items-center gap-1">
-                  <DollarSign className="w-3 h-3" />
-                  Salary Range
-                </label>
-                <Input
-                  placeholder="e.g. $120,000 - $150,000"
-                  value={jobDescription.salaryRange}
-                  onChange={(e) => handleInputChange('salaryRange', e.target.value)}
-                />
-              </div>
+              {renderFieldWithAI('salaryRange',
+                <div>
+                  <label className="text-sm font-medium mb-1 block flex items-center gap-1">
+                    <DollarSign className="w-3 h-3" />
+                    Salary Range
+                  </label>
+                  <Input
+                    placeholder="e.g. $120,000 - $150,000"
+                    value={jobDescription.salaryRange}
+                    onChange={(e) => handleInputChange('salaryRange', e.target.value)}
+                    className={cn(getFieldStyling('salaryRange'))}
+                  />
+                </div>
+              )}
               
-              <div>
-                <label className="text-sm font-medium mb-1 block flex items-center gap-1">
-                  <Clock className="w-3 h-3" />
-                  Employment Type
-                </label>
-                <Input
-                  placeholder="e.g. Full-time, Part-time, Contract"
-                  value={jobDescription.employmentType}
-                  onChange={(e) => handleInputChange('employmentType', e.target.value)}
-                />
-              </div>
+              {renderFieldWithAI('employmentType',
+                <div>
+                  <label className="text-sm font-medium mb-1 block flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    Employment Type
+                  </label>
+                  <Input
+                    placeholder="e.g. Full-time, Part-time, Contract"
+                    value={jobDescription.employmentType}
+                    onChange={(e) => handleInputChange('employmentType', e.target.value)}
+                    className={cn(getFieldStyling('employmentType'))}
+                  />
+                </div>
+              )}
             </div>
           </TabsContent>
         </Tabs>
