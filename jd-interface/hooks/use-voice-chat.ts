@@ -24,6 +24,8 @@ export function useVoiceChat() {
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPollingJDData, setIsPollingJDData] = useState(false);
+  const [lastUserTranscript, setLastUserTranscript] = useState<string>("");
+  const [lastBotTranscript, setLastBotTranscript] = useState<string>("");
 
   const addMessage = useCallback((role: "user" | "assistant", content: string) => {
     const newMessage: Message = {
@@ -178,7 +180,13 @@ export function useVoiceChat() {
     const handleUserTranscript = (data: any) => {
       console.log("📝 User transcript:", data);
       if (data.text && data.text.trim()) {
-        addMessage("user", data.text.trim());
+        const text = data.text.trim();
+        // Only add if it's different from the last transcript to avoid duplicates
+        if (text !== lastUserTranscript && text.length > 0) {
+          console.log("✅ Adding new user message:", text);
+          addMessage("user", text);
+          setLastUserTranscript(text);
+        }
         updateVoiceStatus({ isProcessing: false });
       }
     };
@@ -186,7 +194,13 @@ export function useVoiceChat() {
     const handleBotTranscript = (data: any) => {
       console.log("🤖 Bot transcript:", data);
       if (data.text) {
-        addMessage("assistant", data.text);
+        const text = data.text.trim();
+        // Only add if it's different from the last transcript to avoid duplicates
+        if (text !== lastBotTranscript && text.length > 0) {
+          console.log("✅ Adding new bot message:", text);
+          addMessage("assistant", text);
+          setLastBotTranscript(text);
+        }
         updateVoiceStatus({ isProcessing: false });
       }
     };
@@ -350,7 +364,7 @@ export function useVoiceChat() {
       client.off("serverMessage", handleServerMessage);
       client.off("error", handleError);
     };
-  }, [client, updateVoiceStatus, addMessage]);
+  }, [client, updateVoiceStatus, addMessage, lastUserTranscript, lastBotTranscript]);
 
   // Initial JD data fetch and smart polling fallback
   useEffect(() => {

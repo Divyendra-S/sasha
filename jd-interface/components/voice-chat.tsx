@@ -33,68 +33,77 @@ export function VoiceChat() {
   const status = getConnectionStatus();
 
   return (
-    <div className="h-full max-h-[calc(100vh-10rem)] flex flex-col bg-gradient-to-br from-indigo-50 via-white to-white dark:from-slate-900 dark:via-slate-900 dark:to-slate-800">
+    <div className="h-full max-h-[calc(100vh-10rem)] flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
       {/* Header */}
-      <div className="p-6 pb-4 bg-white/70 dark:bg-slate-800/70 backdrop-blur-xl border-b border-indigo-100 dark:border-slate-700 shadow-sm">
+      <div className="p-4 bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="relative">
-              <div className="w-3 h-3 rounded-full bg-gradient-to-r from-indigo-500 to-cyan-500 animate-pulse shadow-sm"></div>
-              <div className="absolute inset-0 w-3 h-3 rounded-full bg-gradient-to-r from-indigo-500 to-cyan-500 animate-ping opacity-25"></div>
+              <div className={cn(
+                "w-3 h-3 rounded-full transition-colors",
+                isConnected ? "bg-green-500 animate-pulse" : "bg-slate-400"
+              )}></div>
             </div>
-            <h2 className="text-xl font-semibold bg-gradient-to-r from-indigo-900 via-purple-900 to-indigo-900 dark:from-white dark:to-slate-200 bg-clip-text text-transparent">
-              AI Voice Assistant
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+              Voice Assistant
             </h2>
           </div>
-          <div className="px-3 py-1.5 rounded-full text-xs font-medium bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 border border-indigo-100 dark:border-indigo-800">
+          <div className={cn(
+            "px-3 py-1.5 rounded-full text-xs font-medium border",
+            status.color === "default" && "bg-green-50 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-300 dark:border-green-800",
+            status.color === "secondary" && "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800",
+            status.color === "destructive" && "bg-red-50 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800",
+            status.color === "outline" && "bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-900/30 dark:text-slate-300 dark:border-slate-800"
+          )}>
             {status.label}
           </div>
         </div>
       </div>
       
       {/* Content */}
-      <div className="flex-1 flex flex-col gap-6 p-6">
+      <div className="flex-1 flex flex-col gap-4 p-4 overflow-hidden">
         {/* Voice Controls */}
-        <div className="flex flex-col items-center gap-6">
+        <div className="flex flex-col items-center gap-4">
           {!isConnected ? (
-            <div className="flex flex-col items-center gap-6 p-8 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-lg">
+            <div className="flex flex-col items-center gap-4 p-6 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
               <div className="relative">
                 <button 
                   onClick={connect} 
                   disabled={isConnecting}
-                  className="w-20 h-20 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 disabled:from-slate-400 disabled:to-slate-500 shadow-xl hover:shadow-indigo-500/25 transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 flex items-center justify-center group"
+                  className="w-16 h-16 rounded-full bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 transition-all duration-200 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 flex items-center justify-center group shadow-lg"
                 >
-                  <Phone className="w-7 h-7 text-white transition-transform group-hover:scale-105" />
+                  <Phone className="w-6 h-6 text-white" />
                 </button>
                 {isConnecting && (
                   <div className="absolute inset-0 rounded-full border-2 border-indigo-400 border-t-transparent animate-spin"></div>
                 )}
               </div>
               <div className="text-center">
-                <span className="text-lg font-semibold text-slate-900 dark:text-slate-100 block">
-                  {isConnecting ? "Connecting to AI..." : "Connect to AI"}
+                <span className="text-base font-medium text-slate-900 dark:text-slate-100 block">
+                  {isConnecting ? "Connecting..." : "Connect"}
                 </span>
-                <span className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                  Start your voice conversation
+                <span className="text-sm text-slate-500 dark:text-slate-400">
+                  {isConnecting ? "Please wait" : "Start conversation"}
                 </span>
               </div>
             </div>
           ) : (
-            <div className="flex flex-col items-center gap-6 p-8 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-lg">
-              <div className="flex items-center gap-6">
+            <div className="flex flex-col items-center gap-4 p-6 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+              <div className="flex items-center gap-4">
                 <div className="relative">
                   <button 
                     onClick={isListening ? stopListening : startListening}
-                    className={`w-20 h-20 rounded-full shadow-xl transition-all duration-300 hover:scale-105 flex items-center justify-center group ${
+                    className={cn(
+                      "w-16 h-16 rounded-full shadow-lg transition-all duration-200 hover:scale-105 flex items-center justify-center group",
                       isListening 
-                        ? 'bg-rose-600 hover:bg-rose-700 shadow-rose-500/25' 
-                        : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-500/25'
-                    }`}
+                        ? "bg-red-600 hover:bg-red-700" 
+                        : "bg-blue-600 hover:bg-blue-700"
+                    )}
                   >
                     {isListening ? (
-                      <MicOff className="w-7 h-7 text-white transition-transform group-hover:scale-105" />
+                      <MicOff className="w-6 h-6 text-white" />
                     ) : (
-                      <Mic className="w-7 h-7 text-white transition-transform group-hover:scale-105" />
+                      <Mic className="w-6 h-6 text-white" />
                     )}
                   </button>
                   {isListening && (
@@ -103,17 +112,17 @@ export function VoiceChat() {
                 </div>
                 <button 
                   onClick={disconnect}
-                  className="w-12 h-12 rounded-full bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 transition-all duration-300 hover:scale-105 flex items-center justify-center shadow-lg border border-slate-200 dark:border-slate-600"
+                  className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 transition-all duration-200 hover:scale-105 flex items-center justify-center border border-slate-200 dark:border-slate-600"
                 >
-                  <PhoneOff className="w-5 h-5 text-slate-600 dark:text-slate-300" />
+                  <PhoneOff className="w-4 h-4 text-slate-600 dark:text-slate-300" />
                 </button>
               </div>
               <div className="text-center">
-                <span className="text-lg font-semibold text-slate-900 dark:text-slate-100 block">
-                  {isListening ? "AI is listening..." : "Ready to listen"}
+                <span className="text-base font-medium text-slate-900 dark:text-slate-100 block">
+                  {isListening ? "Listening..." : "Ready"}
                 </span>
-                <span className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                  {isListening ? "Speak now" : "Click microphone to start"}
+                <span className="text-sm text-slate-500 dark:text-slate-400">
+                  {isListening ? "Speak now" : "Click mic to start"}
                 </span>
               </div>
             </div>
@@ -122,18 +131,18 @@ export function VoiceChat() {
 
         {/* Error Display */}
         {error && (
-          <div className="p-6 rounded-2xl bg-rose-50/80 dark:bg-rose-900/20 backdrop-blur-xl border border-rose-200/50 dark:border-rose-800/50 shadow-xl shadow-rose-100/50 dark:shadow-rose-900/20">
-            <div className="flex items-start gap-4">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-rose-500 to-pink-600 flex items-center justify-center mt-0.5 flex-shrink-0 shadow-lg">
-                <span className="text-white text-sm font-bold">!</span>
+          <div className="p-4 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+            <div className="flex items-start gap-3">
+              <div className="w-6 h-6 rounded-full bg-red-500 flex items-center justify-center mt-0.5 flex-shrink-0">
+                <span className="text-white text-xs font-bold">!</span>
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-base font-semibold text-rose-800 dark:text-rose-200">AI Connection Error</p>
-                <p className="text-sm text-rose-600 dark:text-rose-300 mt-2 leading-relaxed">{error}</p>
+                <p className="text-sm font-medium text-red-800 dark:text-red-200">Connection Error</p>
+                <p className="text-sm text-red-600 dark:text-red-300 mt-1">{error}</p>
                 {error.includes('Python server') && (
-                  <div className="mt-3 p-3 bg-rose-100/60 dark:bg-rose-800/30 backdrop-blur-sm rounded-xl border border-rose-200/40 dark:border-rose-700/40">
-                    <p className="text-sm text-rose-700 dark:text-rose-300">
-                      💡 Make sure the voice server is running on port 7860
+                  <div className="mt-2 p-2 bg-red-100 dark:bg-red-800/30 rounded border border-red-200 dark:border-red-700">
+                    <p className="text-xs text-red-700 dark:text-red-300">
+                      Make sure the voice server is running on port 7860
                     </p>
                   </div>
                 )}
@@ -144,27 +153,19 @@ export function VoiceChat() {
 
         {/* Status Indicator */}
         {isConnected && (
-          <div className="flex items-center justify-center gap-4 p-4 rounded-xl bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl border border-white/40 dark:border-slate-700/40 shadow-lg shadow-indigo-100/30 dark:shadow-slate-900/30">
+          <div className="flex items-center justify-center gap-3 p-3 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
             <div className="relative flex items-center gap-3">
               <div className={cn(
-                "w-3 h-3 rounded-full transition-all duration-300 shadow-lg",
-                isListening && !isProcessing ? "bg-gradient-to-r from-rose-500 to-pink-500 animate-pulse shadow-rose-500/50" : 
-                isProcessing ? "bg-gradient-to-r from-amber-500 to-orange-500 animate-bounce shadow-amber-500/50" : 
-                "bg-gradient-to-r from-emerald-500 to-teal-500 shadow-emerald-500/50"
+                "w-2 h-2 rounded-full transition-all duration-300",
+                isListening && !isProcessing ? "bg-red-500 animate-pulse" : 
+                isProcessing ? "bg-amber-500 animate-bounce" : 
+                "bg-green-500"
               )}>
-                {(isListening || isProcessing) && (
-                  <div className={cn(
-                    "absolute inset-0 rounded-full animate-ping opacity-30",
-                    isListening && !isProcessing ? "bg-rose-400" :
-                    isProcessing ? "bg-amber-400" :
-                    "bg-emerald-400"
-                  )} />
-                )}
               </div>
               <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                {isProcessing ? "🤖 AI Processing..." : 
-                 isListening ? "🎤 Listening..." : 
-                 "✨ Ready"}
+                {isProcessing ? "Processing..." : 
+                 isListening ? "Listening..." : 
+                 "Ready"}
               </span>
             </div>
           </div>
@@ -173,43 +174,43 @@ export function VoiceChat() {
         {/* Conversation */}
         {messages.length > 0 && (
           <div className="flex-1 flex flex-col min-h-0">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-cyan-600 flex items-center justify-center shadow-lg">
-                <span className="text-white text-sm">💬</span>
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-6 h-6 rounded-lg bg-blue-600 flex items-center justify-center">
+                <span className="text-white text-xs">💬</span>
               </div>
-              <h3 className="text-lg font-semibold bg-gradient-to-r from-indigo-900 via-purple-900 to-indigo-900 dark:from-white dark:to-slate-300 bg-clip-text text-transparent">
-                AI Conversation
+              <h3 className="text-base font-medium text-slate-900 dark:text-white">
+                Conversation
               </h3>
             </div>
-            <ScrollArea className="flex-1 rounded-2xl border border-white/30 dark:border-slate-700/30 bg-white/40 dark:bg-slate-800/40 backdrop-blur-xl shadow-xl shadow-indigo-100/20 dark:shadow-slate-900/20">
-              <div className="p-6 space-y-4">
+            <ScrollArea className="flex-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 min-h-0">
+              <div className="p-4 space-y-3">
                 {messages.map((message) => (
                   <div 
                     key={message.id}
                     className={cn(
-                      "flex gap-4 animate-in slide-in-from-bottom-2 duration-300",
+                      "flex gap-3 animate-in slide-in-from-bottom-2 duration-300",
                       message.role === "user" ? "flex-row-reverse" : "flex-row"
                     )}
                   >
                     <div className={cn(
-                      "w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 shadow-lg",
+                      "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0",
                       message.role === "user" 
-                        ? "bg-gradient-to-br from-indigo-500 to-purple-600 text-white" 
-                        : "bg-gradient-to-br from-emerald-500 to-teal-600 text-white"
+                        ? "bg-blue-600 text-white" 
+                        : "bg-green-600 text-white"
                     )}>
-                      {message.role === "user" ? "👤" : "🤖"}
+                      {message.role === "user" ? "U" : "A"}
                     </div>
                     <div className={cn(
-                      "max-w-[75%] rounded-2xl px-4 py-3 shadow-lg backdrop-blur-sm",
+                      "max-w-[75%] rounded-lg px-3 py-2",
                       message.role === "user" 
-                        ? "bg-gradient-to-br from-indigo-500 to-purple-600 text-white" 
-                        : "bg-white/90 dark:bg-slate-700/90 border border-white/40 dark:border-slate-600/40 text-slate-900 dark:text-slate-100"
+                        ? "bg-blue-600 text-white" 
+                        : "bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-600"
                     )}>
-                      <p className="text-sm leading-relaxed">{message.content}</p>
+                      <p className="text-sm leading-normal">{message.content}</p>
                       <span className={cn(
-                        "text-xs mt-2 block opacity-75 font-medium",
+                        "text-xs mt-1 block opacity-75",
                         message.role === "user" 
-                          ? "text-indigo-100" 
+                          ? "text-blue-100" 
                           : "text-slate-500 dark:text-slate-400"
                       )}>
                         {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -224,20 +225,16 @@ export function VoiceChat() {
 
         {/* Instructions */}
         {!isConnected && !isConnecting && !error && (
-          <div className="text-center p-8 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-lg">
-            <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-indigo-600 flex items-center justify-center shadow-lg">
-              <Phone className="w-7 h-7 text-white" />
+          <div className="text-center p-6 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+            <div className="w-12 h-12 mx-auto mb-4 rounded-lg bg-blue-600 flex items-center justify-center">
+              <Phone className="w-6 h-6 text-white" />
             </div>
-            <h3 className="text-xl font-bold bg-gradient-to-r from-indigo-900 via-purple-900 to-indigo-900 dark:from-white dark:to-slate-300 bg-clip-text text-transparent mb-2">
-              AI Voice Assistant Ready
+            <h3 className="text-base font-medium text-slate-900 dark:text-white mb-2">
+              Voice Assistant Ready
             </h3>
-            <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed max-w-sm mx-auto">
-              Connect to your AI assistant and start an intelligent voice conversation
+            <p className="text-sm text-slate-500 dark:text-slate-400 max-w-xs mx-auto">
+              Connect to start voice conversation
             </p>
-            <div className="flex items-center justify-center gap-2 mt-4 text-xs text-slate-500 dark:text-slate-400">
-              <div className="w-2 h-2 rounded-full bg-indigo-500"></div>
-              <span>Powered by AI</span>
-            </div>
           </div>
         )}
       </div>
