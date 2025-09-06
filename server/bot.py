@@ -108,7 +108,7 @@ async def run_bot(transport: BaseTransport):
         missing_fields = jd_data.get_missing_fields()
         
         # Base system prompt
-        base_prompt = """You are a professional HR assistant helping to create comprehensive job descriptions. Your PRIMARY OBJECTIVE is to systematically collect specific information about the role being created.
+        base_prompt = """You are a professional HR assistant helping create job descriptions. Keep responses SHORT and NATURAL while systematically collecting all required information.
 
 CRITICAL REQUIREMENTS - You MUST obtain these key pieces of information:
 1. Job title and role level (e.g., Senior Software Engineer, Marketing Manager)
@@ -122,22 +122,15 @@ CRITICAL REQUIREMENTS - You MUST obtain these key pieces of information:
 9. Team size and reporting structure
 10. Growth opportunities and career development
 
-JOB DESCRIPTION STRATEGY:
-- Be friendly and professional, but stay focused on gathering comprehensive JD information
-- Ask detailed questions to understand the role requirements thoroughly
-- Adapt your approach based on what information has already been collected
-- If someone gives a vague response, ask follow-up questions for specificity
-- Help them think through all aspects of the role
-- When users provide multiple pieces of information at once, acknowledge all of it
+RESPONSE STYLE:
+- Give brief, friendly responses (1-2 sentences max)
+- Ask ONE focused question at a time
+- Don't repeat back information they just gave you
+- Don't confirm every detail - the system captures everything automatically
+- Keep the conversation flowing naturally
+- Focus on missing information while being conversational
 
-CONVERSATION APPROACH:
-- Be conversational and adaptive based on the information already gathered
-- Focus on missing information while acknowledging what's been collected
-- Help them consider aspects they might not have thought of
-- Provide suggestions based on common industry practices
-- Build naturally on the conversation flow rather than following a rigid sequence
-
-IMPORTANT: The system is automatically extracting information from our conversation in real-time. You don't need to explicitly confirm every detail - focus on natural conversation and gathering missing information."""
+IMPORTANT: Information is extracted automatically - just have a natural conversation and ask good follow-up questions to gather all 10 required pieces."""
         
         # Add current JD status if there's collected information
         if collected_fields:
@@ -249,8 +242,8 @@ IMPORTANT: The system is automatically extracting information from our conversat
         logger.info(f"[BOT] Initial JD state - Missing fields: {jd_data.get_missing_fields()}")
         logger.info(f"[BOT] Initial JD data values: job_title='{jd_data.job_title}', company_name='{jd_data.company_name}', required_qualifications='{jd_data.required_qualifications}', responsibilities='{jd_data.responsibilities}'")
         
-        # Send a focused greeting to start the JD creation with clear expectations
-        greeting_message = "Hello! I'm here to help you create a comprehensive job description. I'll guide you through gathering all the essential information to make an attractive and detailed job posting. Let's start - what job title are you looking to create a description for?"
+        # Send a brief, natural greeting
+        greeting_message = "Hi! I'll help you create a job description. What position are you hiring for?"
         
         greeting_frame = LLMMessagesAppendFrame([
             {
@@ -367,10 +360,10 @@ async def jd_flow_monitor(task, flow_manager, messages, context_aggregator):
                             messages.extend(recent_messages)
                             logger.info(f"[JD_FLOW] Message history trimmed, now {len(messages)} messages")
                         
-                        # Add more direct guidance to conversation
+                        # Add brief guidance to conversation
                         guidance_message = {
                             "role": "system",
-                            "content": f"IMPORTANT: Ask this specific question now to gather missing information: {guidance} Be direct and don't deviate from this topic until you get an answer."
+                            "content": f"Ask: {guidance} Keep it brief."
                         }
                         messages.append(guidance_message)
                         logger.info(f"[JD_FLOW] Added guidance message to conversation (total messages: {len(messages)})")
@@ -409,7 +402,7 @@ async def jd_flow_monitor(task, flow_manager, messages, context_aggregator):
                     
                     completion_message = {
                         "role": "system",
-                        "content": "The job description is complete. Summarize the collected information and offer to help refine any sections."
+                        "content": "Job description complete! Offer to review or refine anything. Keep it short."
                     }
                     messages.append(completion_message)
                     logger.info("[JD_FLOW] Added completion message, queuing final frame")

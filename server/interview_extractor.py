@@ -28,7 +28,8 @@ class JDData:
     responsibilities: Optional[str] = None  # Maps to frontend 'description'
     required_qualifications: Optional[str] = None  # Will be split into frontend 'requirements' list
     preferred_qualifications: Optional[str] = None  # Will be split into frontend 'benefits' list
-    work_arrangement: Optional[str] = None  # Maps to frontend 'location'
+    location: Optional[str] = None  # Maps to frontend 'location' - actual location/address
+    work_arrangement: Optional[str] = None  # Remote/hybrid/onsite work style
     salary_range: Optional[str] = None  # Maps to frontend 'salaryRange'
     employment_type: Optional[str] = None  # Maps to frontend 'employmentType'
     
@@ -76,7 +77,7 @@ class JDData:
     def get_missing_fields(self) -> List[str]:
         """Get list of fields that haven't been collected yet."""
         all_fields = {"job_title", "company_name", "required_qualifications", "responsibilities", 
-                     "technical_skills", "preferred_qualifications", "salary_range", "work_arrangement", 
+                     "technical_skills", "preferred_qualifications", "salary_range", "location", "work_arrangement", 
                      "employment_type", "team_size", "growth_opportunities", "department", 
                      "experience_level", "education_requirements"}
         return list(all_fields - self._collected_fields)
@@ -84,7 +85,7 @@ class JDData:
     def get_all_fields(self) -> List[str]:
         """Get list of all trackable fields."""
         return ["job_title", "company_name", "required_qualifications", "responsibilities", 
-               "technical_skills", "preferred_qualifications", "salary_range", "work_arrangement", 
+               "technical_skills", "preferred_qualifications", "salary_range", "location", "work_arrangement", 
                "employment_type", "team_size", "growth_opportunities", "department", 
                "experience_level", "education_requirements"]
     
@@ -105,10 +106,8 @@ class JDData:
         if self.growth_opportunities:
             benefits.append(self.growth_opportunities)
         
-        # Build location string from work arrangement and other details
-        location = self.work_arrangement or ""
-        if self.department:
-            location = f"{self.department}, {location}" if location else self.department
+        # Use location field directly - don't mix with work_arrangement or department
+        location = self.location or ""
         
         return {
             "title": self.job_title or "",
@@ -116,9 +115,16 @@ class JDData:
             "description": self.responsibilities or "",
             "requirements": requirements,
             "benefits": benefits,
-            "location": location.strip(", "),
+            "location": location,
+            "workArrangement": self.work_arrangement or "",
             "salaryRange": self.salary_range or "",
             "employmentType": self.employment_type or "Full-time",
+            "experienceLevel": self.experience_level or "",
+            "department": self.department or "",
+            "teamSize": self.team_size or "",
+            "technicalSkills": self.technical_skills or [],
+            "educationRequirements": self.education_requirements or "",
+            "growthOpportunities": self.growth_opportunities or "",
             # Additional data for debugging/info
             "_extractedFields": list(self._collected_fields),
             "_completionPercentage": len(self._collected_fields) / len(self.get_all_fields()) * 100,
@@ -195,39 +201,44 @@ class JDExtractor(FrameProcessor):
         self._last_text_time = 0
         self._sentence_timeout = 1.5  # seconds to wait before processing buffer
         
+        # Conversation history for context-aware extraction
+        self._conversation_history = []
+        self._max_history_size = 6  # Keep last 6 messages for context
         
-        self.extraction_prompt = """You are an expert at extracting job description information from conversational text. 
+        
+        self.extraction_prompt = """You extract job description information. Be EXTREMELY careful about field relevance. Return ONLY valid JSON.
 
-Your job is to extract ANY job-related information from what the user says and return it as a JSON object. Be smart about inferring information even if not explicitly stated.
+FIELD VALIDATION RULES - Only extract if text CLEARLY matches the field:
 
-Available fields to extract:
-- job_title: Any job position, role, or title mentioned
-- company_name: Company, organization, or business name  
-- responsibilities: What the person will do, tasks, duties, job description
-- required_qualifications: Must-have skills, experience, certifications, requirements
-- technical_skills: Programming languages, technologies, tools, software (as array)
-- preferred_qualifications: Nice-to-have skills, bonus qualifications
-- salary_range: Pay, compensation, salary, hourly rate, budget
-- work_arrangement: Remote, onsite, hybrid, location flexibility
-- employment_type: Full-time, part-time, contract, freelance, internship
-- team_size: How many people on team, team structure
-- experience_level: Junior, senior, entry-level, mid-level, years of experience
-- department: Engineering, marketing, sales, HR, which team/division
-- education_requirements: Degree requirements, educational background needed
-- growth_opportunities: Career advancement, learning opportunities, promotion path
+job_title: ONLY job positions/roles (✓ "Software Engineer", "Manager", "Developer" ✗ "location building", "my company", "remote")
+company_name: ONLY organization names (✓ "Google", "TechCorp", "Devin Inc" ✗ "AI company", "location building", "engineering")  
+responsibilities: ONLY job duties/tasks (✓ "manage team", "write code", "design systems" ✗ "Python", "5 years", "remote")
+required_qualifications: ONLY mandatory skills/experience (✓ "5 years Python", "CS degree" ✗ "nice to have", "preferred")
+technical_skills: ONLY technologies/languages as array (✓ ["Python", "React"] ✗ "good with computers", "5 years experience")
+location: ONLY physical places (✓ "San Francisco", "New York office", "Building 5" ✗ "remote", "hybrid", "flexible")
+work_arrangement: ONLY work style (✓ "remote", "hybrid", "onsite" ✗ "San Francisco", "office building")
+salary_range: ONLY compensation (✓ "$100k", "80-120k" ✗ "negotiable", "good benefits")
+experience_level: ONLY seniority (✓ "senior", "junior", "mid-level" ✗ "Python", "5 years")
 
-CONTEXT - Current job description state:
-{context}
+CONVERSATION CONTEXT:
+{conversation_context}
 
-INSTRUCTIONS:
-1. Extract ANY relevant information you can find, even partial information
-2. Be liberal in your interpretation - if someone says "we need someone good with computers" that could be technical_skills: ["computers"]
-3. If you can reasonably infer something, include it
-4. Don't be overly strict - extract anything that might be useful
-5. Return a valid JSON object with only the fields that have information
-6. If absolutely nothing job-related, return empty object {}
+CURRENT COLLECTED DATA:
+{current_data}
 
-USER INPUT: """
+VALIDATION RULES:
+1. If user input doesn't clearly match a field's purpose, DON'T extract it
+2. Consider what question was likely asked based on conversation context
+3. Only extract if you're 90% confident the text belongs in that field
+4. When in doubt, return empty {} rather than guess wrong
+5. Don't extract same information twice
+
+EXAMPLES:
+Bot: "What's the job title?" User: "location building" → {} (not a job title)
+Bot: "What's your company?" User: "It is my company's name is Devin" → {"company_name": "Devin"}  
+Bot: "What technologies?" User: "Python and React" → {"technical_skills": ["Python", "React"]}
+
+INPUT TO ANALYZE: """
     
     async def should_extract(self, text: str) -> bool:
         """Determine if text contains enough information to warrant extraction."""
@@ -238,7 +249,27 @@ USER INPUT: """
         logger.info(f"[EXTRACTION_FILTER] ✅ Will extract from: '{text[:80]}{'...' if len(text) > 80 else ''}'")
         return True
     
+    def add_to_conversation_history(self, role: str, message: str):
+        """Add a message to conversation history for extraction context."""
+        if message and message.strip():
+            self._conversation_history.append({"role": role, "content": message.strip()})
+            # Keep only recent messages
+            if len(self._conversation_history) > self._max_history_size:
+                self._conversation_history = self._conversation_history[-self._max_history_size:]
+            logger.info(f"[CONVERSATION_HISTORY] Added {role} message, history size: {len(self._conversation_history)}")
     
+    def get_conversation_context(self) -> str:
+        """Get recent conversation context to help with extraction."""
+        if not self._conversation_history:
+            return "No conversation context available"
+        
+        context_lines = ["RECENT CONVERSATION:"]
+        for msg in self._conversation_history[-4:]:  # Last 4 messages
+            role = "Bot" if msg["role"] == "assistant" else "User"
+            content = msg["content"][:120] + "..." if len(msg["content"]) > 120 else msg["content"]
+            context_lines.append(f"{role}: {content}")
+        
+        return "\n".join(context_lines)
     
     def get_context_for_llm(self) -> str:
         """Generate context about current JD state for the LLM."""
@@ -272,13 +303,19 @@ USER INPUT: """
         logger.info(f"[EXTRACTION] 🔍 [{extraction_id}] Starting extraction for: \"{text[:80]}{'...' if len(text) > 80 else ''}\"")
         
         try:
-            # Get current context
-            context = self.get_context_for_llm()
+            # Add user input to conversation history for context
+            self.add_to_conversation_history("user", text)
             
-            # Build prompt with context
-            full_prompt = self.extraction_prompt.replace("{context}", context) + f"\"{text}\""
+            # Get conversation context and current data
+            conversation_context = self.get_conversation_context()
+            current_data = self.get_context_for_llm()
             
-            logger.info(f"[EXTRACTION] [{extraction_id}] Context: {context}")
+            # Build prompt with both contexts
+            full_prompt = self.extraction_prompt.replace("{conversation_context}", conversation_context)
+            full_prompt = full_prompt.replace("{current_data}", current_data) + f"\"{text}\""
+            
+            logger.info(f"[EXTRACTION] [{extraction_id}] Conversation context: {conversation_context[:200]}...")
+            logger.info(f"[EXTRACTION] [{extraction_id}] Current data: {current_data[:200]}...")
             
             # Call extraction LLM
             messages = [{"role": "user", "content": full_prompt}]
@@ -289,13 +326,24 @@ USER INPUT: """
             
             logger.info(f"[EXTRACTION] [{extraction_id}] Raw LLM response: '{response_text[:300]}{'...' if len(response_text) > 300 else ''}'")
             
-            # Clean up response - remove markdown code blocks if present
+            # Clean up response - remove markdown code blocks and extra text
             clean_response = response_text.strip()
             if clean_response.startswith('```json'):
                 clean_response = clean_response[7:]  # Remove ```json
             if clean_response.endswith('```'):
                 clean_response = clean_response[:-3]  # Remove ```
             clean_response = clean_response.strip()
+            
+            # If response contains JSON followed by explanation, extract only JSON
+            import re
+            json_match = re.search(r'^(\{.*?\})', clean_response, re.DOTALL)
+            if json_match:
+                clean_response = json_match.group(1).strip()
+            else:
+                # Try to find JSON anywhere in the response
+                json_match = re.search(r'\{.*?\}', clean_response, re.DOTALL)
+                if json_match:
+                    clean_response = json_match.group(0).strip()
             
             logger.info(f"[EXTRACTION] [{extraction_id}] Cleaned response: '{clean_response[:300]}{'...' if len(clean_response) > 300 else ''}'")
             
@@ -371,20 +419,69 @@ USER INPUT: """
             logger.error(f"[EXTRACTION_LLM] Groq call failed: {e}")
             return "{}"
     
+    def validate_field_content(self, field: str, value: str) -> bool:
+        """Validate if the extracted value actually belongs in the given field."""
+        if not value or not isinstance(value, str):
+            return False
+        
+        value_lower = value.lower().strip()
+        
+        # Field-specific validation rules
+        if field == "job_title":
+            # Job titles should not contain location words, company descriptions, or work arrangements
+            invalid_patterns = ["location", "building", "office", "remote", "onsite", "hybrid", "company", "my company"]
+            if any(pattern in value_lower for pattern in invalid_patterns):
+                logger.warning(f"[FIELD_VALIDATION] Rejecting job_title '{value}' - contains invalid pattern")
+                return False
+            # Should contain role-related words
+            valid_patterns = ["engineer", "developer", "manager", "analyst", "designer", "architect", "lead", "senior", "junior", "director", "specialist", "coordinator"]
+            if len(value_lower) > 3 and not any(pattern in value_lower for pattern in valid_patterns) and not any(c.isupper() for c in value):
+                logger.warning(f"[FIELD_VALIDATION] Rejecting job_title '{value}' - doesn't look like a job title")
+                return False
+                
+        elif field == "company_name":
+            # Company names should not be descriptions or locations
+            invalid_patterns = ["location", "building", "office", "my company's name is", "it is", "the company"]
+            if any(pattern in value_lower for pattern in invalid_patterns):
+                logger.warning(f"[FIELD_VALIDATION] Rejecting company_name '{value}' - contains invalid pattern")
+                return False
+                
+        elif field == "location":
+            # Locations should not be work arrangements
+            if value_lower in ["remote", "onsite", "hybrid", "flexible"]:
+                logger.warning(f"[FIELD_VALIDATION] Rejecting location '{value}' - this is work_arrangement")
+                return False
+                
+        elif field == "work_arrangement":
+            # Work arrangements should only be these specific values
+            valid_arrangements = ["remote", "onsite", "hybrid", "flexible", "in-office", "work from home"]
+            if not any(arr in value_lower for arr in valid_arrangements):
+                logger.warning(f"[FIELD_VALIDATION] Rejecting work_arrangement '{value}' - not a valid arrangement")
+                return False
+        
+        return True
+
     async def update_jd_data(self, extracted_data: Dict) -> None:
-        """Update JD data with extracted information."""
+        """Update JD data with extracted information after validation."""
         updates_made = []
         ignored_fields = []
+        validation_rejects = []
         
         logger.info(f"[EXTRACTION_UPDATE] Processing extracted JD data: {extracted_data}")
         
         valid_fields = ["job_title", "company_name", "required_qualifications", "responsibilities", 
-                       "technical_skills", "preferred_qualifications", "salary_range", 
+                       "technical_skills", "preferred_qualifications", "salary_range", "location",
                        "work_arrangement", "employment_type", "team_size", "growth_opportunities",
                        "department", "experience_level", "education_requirements"]
         
         for field, value in extracted_data.items():
             if field in valid_fields:
+                # Validate field content before updating
+                if isinstance(value, str) and not self.validate_field_content(field, value):
+                    validation_rejects.append(f"{field}='{value}'")
+                    logger.warning(f"[EXTRACTION_UPDATE] ❌ Rejected {field} = '{value}' (failed validation)")
+                    continue
+                    
                 logger.info(f"[EXTRACTION_UPDATE] Attempting to update field '{field}' with value: {value}")
                 was_updated = await self.jd_data.update_field(field, value)
                 if was_updated:
@@ -398,6 +495,9 @@ USER INPUT: """
         
         if ignored_fields:
             logger.info(f"[EXTRACTION_UPDATE] Ignored {len(ignored_fields)} unknown fields: {ignored_fields}")
+        
+        if validation_rejects:
+            logger.info(f"[EXTRACTION_UPDATE] Rejected {len(validation_rejects)} fields due to validation: {validation_rejects}")
             
         if updates_made:
             collected = self.jd_data.get_collected_fields()
@@ -428,7 +528,8 @@ USER INPUT: """
                 # Assistant speech (from LLM, going upstream to TTS)  
                 elif direction == FrameDirection.UPSTREAM:
                     logger.info(f"[EXTRACTOR_FRAME] Received assistant text: '{text[:60]}{'...' if len(text) > 60 else ''}'")
-                    # Just log assistant messages, no complex history
+                    # Add assistant message to conversation history for context
+                    self.add_to_conversation_history("assistant", text)
         
         # Always pass frame through
         await self.push_frame(frame, direction)

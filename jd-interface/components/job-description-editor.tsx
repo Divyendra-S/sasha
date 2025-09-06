@@ -29,6 +29,7 @@ export function JobDescriptionEditor() {
   const [isAIExtracting, setIsAIExtracting] = useState(false);
   const [lastUpdateTime, setLastUpdateTime] = useState<number>(0);
   const prevJobDescription = useRef(jobDescription);
+  const fieldRefs = useRef<Record<string, HTMLDivElement | null>>({});
   
   // Detect when fields are updated (likely by AI)
   useEffect(() => {
@@ -61,6 +62,18 @@ export function JobDescriptionEditor() {
       setIsAIExtracting(true);
       setLastUpdateTime(Date.now());
       
+      // Scroll to the first updated field for better UX
+      const firstUpdatedField = Array.from(updatedFields)[0];
+      if (firstUpdatedField && fieldRefs.current[firstUpdatedField]) {
+        setTimeout(() => {
+          fieldRefs.current[firstUpdatedField]?.scrollIntoView({
+            behavior: 'smooth',
+            block: 'center',
+            inline: 'nearest'
+          });
+        }, 200); // Small delay to allow DOM to update
+      }
+      
       // Clear the highlight after 3 seconds
       setTimeout(() => {
         setRecentlyUpdated(new Set());
@@ -91,18 +104,33 @@ export function JobDescriptionEditor() {
     handleInputChange('benefits', benefits);
   };
 
+  const handleTechnicalSkillsChange = (value: string) => {
+    const skills = value
+      .split('\n')
+      .filter(skill => skill.trim() !== '')
+      .map(skill => skill.trim());
+    handleInputChange('technicalSkills', skills);
+  };
+
   const getCompletionStats = () => {
     const fields = [
       jobDescription.title,
       jobDescription.company,
       jobDescription.description,
       jobDescription.location,
+      jobDescription.workArrangement,
       jobDescription.salaryRange,
       jobDescription.employmentType,
+      jobDescription.experienceLevel,
+      jobDescription.department,
+      jobDescription.teamSize,
+      jobDescription.educationRequirements,
+      jobDescription.growthOpportunities,
     ];
     const arrayFields = [
       jobDescription.requirements,
       jobDescription.benefits,
+      jobDescription.technicalSkills,
     ];
     
     const filledFields = fields.filter(Boolean).length;
@@ -136,7 +164,12 @@ export function JobDescriptionEditor() {
   const renderFieldWithAI = (fieldName: string, children: React.ReactNode) => {
     const isUpdated = isFieldRecentlyUpdated(fieldName);
     return (
-      <div className="relative group">
+      <div 
+        ref={(el) => {
+          fieldRefs.current[fieldName] = el;
+        }}
+        className="relative group"
+      >
         {children}
         {isUpdated && (
           <div className="absolute -top-3 -right-3 flex items-center gap-2 animate-in fade-in slide-in-from-right-2 duration-300">
@@ -373,7 +406,138 @@ export function JobDescriptionEditor() {
                 />
               </div>
             )}
+
+            {renderFieldWithAI('workArrangement',
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-gray-700 dark:text-gray-200 flex items-center gap-2">
+                  <MapPin className="w-4 h-4 text-gray-500" />
+                  Work Arrangement
+                </label>
+                <Input
+                  placeholder="e.g. Remote, Hybrid, Onsite"
+                  value={jobDescription.workArrangement}
+                  onChange={(e) => handleInputChange('workArrangement', e.target.value)}
+                  className={cn("h-11 text-base", getFieldStyling('workArrangement'))}
+                />
+              </div>
+            )}
+
+            {renderFieldWithAI('experienceLevel',
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-gray-700 dark:text-gray-200 flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4 text-gray-500" />
+                  Experience Level
+                </label>
+                <Input
+                  placeholder="e.g. Junior, Mid-level, Senior"
+                  value={jobDescription.experienceLevel}
+                  onChange={(e) => handleInputChange('experienceLevel', e.target.value)}
+                  className={cn("h-11 text-base", getFieldStyling('experienceLevel'))}
+                />
+              </div>
+            )}
+
+            {renderFieldWithAI('department',
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-gray-700 dark:text-gray-200 flex items-center gap-2">
+                  <Building2 className="w-4 h-4 text-gray-500" />
+                  Department
+                </label>
+                <Input
+                  placeholder="e.g. Engineering, Marketing, Sales"
+                  value={jobDescription.department}
+                  onChange={(e) => handleInputChange('department', e.target.value)}
+                  className={cn("h-11 text-base", getFieldStyling('department'))}
+                />
+              </div>
+            )}
+
+            {renderFieldWithAI('teamSize',
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-gray-700 dark:text-gray-200 flex items-center gap-2">
+                  <Building2 className="w-4 h-4 text-gray-500" />
+                  Team Size
+                </label>
+                <Input
+                  placeholder="e.g. 5-10 people, Small team, Large team"
+                  value={jobDescription.teamSize}
+                  onChange={(e) => handleInputChange('teamSize', e.target.value)}
+                  className={cn("h-11 text-base", getFieldStyling('teamSize'))}
+                />
+              </div>
+            )}
+
+            {renderFieldWithAI('educationRequirements',
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-gray-700 dark:text-gray-200 flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-gray-500" />
+                  Education Requirements
+                </label>
+                <Input
+                  placeholder="e.g. Bachelor's degree in CS, No degree required"
+                  value={jobDescription.educationRequirements}
+                  onChange={(e) => handleInputChange('educationRequirements', e.target.value)}
+                  className={cn("h-11 text-base", getFieldStyling('educationRequirements'))}
+                />
+              </div>
+            )}
           </div>
+        </section>
+
+        {/* Technical Skills Section */}
+        <section className="space-y-6">
+          <div className="flex items-center gap-2 mb-4">
+            <CheckCircle className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Technical Skills</h3>
+          </div>
+          {renderFieldWithAI('technicalSkills',
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-semibold text-gray-700 dark:text-gray-200 flex items-center gap-2">
+                  <div className="w-1 h-4 bg-indigo-500 rounded-full"></div>
+                  Technical Skills
+                </label>
+                <div className="px-3 py-1 bg-gray-100 dark:bg-gray-800 rounded-full text-xs font-medium text-gray-600 dark:text-gray-400">
+                  {jobDescription.technicalSkills.length} skill{jobDescription.technicalSkills.length !== 1 ? 's' : ''}
+                </div>
+              </div>
+              <Textarea
+                placeholder="• Python
+• React
+• Node.js
+• PostgreSQL
+• Docker"
+                value={jobDescription.technicalSkills.join('\n')}
+                onChange={(e) => handleTechnicalSkillsChange(e.target.value)}
+                className={cn("min-h-32 text-base leading-relaxed resize-none", getFieldStyling('technicalSkills'))}
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400 italic">
+                Enter each skill on a new line
+              </p>
+            </div>
+          )}
+        </section>
+
+        {/* Growth Opportunities Section */}
+        <section className="space-y-6">
+          <div className="flex items-center gap-2 mb-4">
+            <Sparkles className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Growth & Development</h3>
+          </div>
+          {renderFieldWithAI('growthOpportunities',
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-gray-700 dark:text-gray-200 flex items-center gap-2">
+                <div className="w-1 h-4 bg-purple-500 rounded-full"></div>
+                Growth Opportunities
+              </label>
+              <Textarea
+                placeholder="Describe career growth opportunities, learning paths, mentorship programs, advancement possibilities..."
+                value={jobDescription.growthOpportunities}
+                onChange={(e) => handleInputChange('growthOpportunities', e.target.value)}
+                className={cn("min-h-28 text-base leading-relaxed resize-none", getFieldStyling('growthOpportunities'))}
+              />
+            </div>
+          )}
         </section>
 
         {/* Action Buttons */}

@@ -7,8 +7,15 @@ export interface JobDescription {
   requirements: string[];
   benefits: string[];
   location: string;
+  workArrangement: string;
   salaryRange: string;
   employmentType: string;
+  experienceLevel: string;
+  department: string;
+  teamSize: string;
+  technicalSkills: string[];
+  educationRequirements: string;
+  growthOpportunities: string;
 }
 
 export interface VoiceSession {
@@ -28,8 +35,15 @@ export const jobDescriptionAtom = atom<JobDescription>({
   requirements: [],
   benefits: [],
   location: '',
+  workArrangement: '',
   salaryRange: '',
   employmentType: 'Full-time',
+  experienceLevel: '',
+  department: '',
+  teamSize: '',
+  technicalSkills: [],
+  educationRequirements: '',
+  growthOpportunities: '',
 });
 
 export const voiceSessionAtom = atom<VoiceSession>({
@@ -74,16 +88,30 @@ export const bulkUpdateJDAtom = atom(
     const current = get(jobDescriptionAtom);
     const validUpdates: Partial<JobDescription> = {};
     
-    // Map and validate fields
+    // Map and validate fields - backend field names to frontend field names
     const fieldMapping: Record<string, keyof JobDescription> = {
       title: 'title',
-      company: 'company',
+      job_title: 'title',
+      company: 'company', 
+      company_name: 'company',
       description: 'description',
+      responsibilities: 'description',
       requirements: 'requirements',
+      required_qualifications: 'requirements',
       benefits: 'benefits',
+      preferred_qualifications: 'benefits',
       location: 'location',
+      work_arrangement: 'workArrangement',
       salaryRange: 'salaryRange',
-      employmentType: 'employmentType'
+      salary_range: 'salaryRange',
+      employmentType: 'employmentType',
+      employment_type: 'employmentType',
+      experience_level: 'experienceLevel',
+      department: 'department',
+      team_size: 'teamSize',
+      technical_skills: 'technicalSkills',
+      education_requirements: 'educationRequirements',
+      growth_opportunities: 'growthOpportunities'
     };
     
     for (const [sourceField, targetField] of Object.entries(fieldMapping)) {
@@ -91,8 +119,16 @@ export const bulkUpdateJDAtom = atom(
         const value = data[sourceField];
         
         // Validate array fields
-        if ((targetField === 'requirements' || targetField === 'benefits') && Array.isArray(value)) {
+        if ((targetField === 'requirements' || targetField === 'benefits' || targetField === 'technicalSkills') && Array.isArray(value)) {
           (validUpdates as any)[targetField] = value.filter(item => item && typeof item === 'string');
+        }
+        // Convert string to array for technical_skills if needed
+        else if (targetField === 'technicalSkills' && typeof value === 'string') {
+          (validUpdates as any)[targetField] = [value];
+        }
+        // Convert array to string for requirements/benefits if needed (for backend compatibility)  
+        else if ((targetField === 'requirements' || targetField === 'benefits') && typeof value === 'string') {
+          (validUpdates as any)[targetField] = value.split('\n').filter(item => item.trim());
         }
         // Validate string fields
         else if (typeof value === 'string') {
