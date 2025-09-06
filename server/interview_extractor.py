@@ -193,90 +193,101 @@ class JDExtractor(FrameProcessor):
         # Sentence buffer to accumulate speech fragments
         self._sentence_buffer = []
         self._last_text_time = 0
-        self._sentence_timeout = 3.0  # seconds to wait before processing buffer
+        self._sentence_timeout = 1.5  # seconds to wait before processing buffer
         
-        self.extraction_prompt = """
-You are an information extraction system for job description creation. Extract structured information from hiring manager responses.
+        
+        self.extraction_prompt = """You are an expert at extracting job description information from conversational text. 
 
-Extract the following fields from the user's response (only if explicitly mentioned):
-- job_title: The job title/position being created (e.g., "Senior Software Engineer", "Marketing Manager")
-- company_name: Name of the company
-- responsibilities: Key job duties and responsibilities  
-- required_qualifications: Required education, experience, or certifications (as a single string)
-- technical_skills: List of required technical skills, programming languages, tools, or technologies
-- preferred_qualifications: Nice-to-have qualifications or experience (as a single string)
-- salary_range: Salary range or compensation details
-- work_arrangement: Work setup (remote, hybrid, onsite, or specific location)
-- employment_type: Employment type (full-time, part-time, contract, internship)
-- team_size: Size of the team or reporting structure
-- growth_opportunities: Career development or growth opportunities
-- department: Department or division (e.g., "Engineering", "Marketing", "Sales")
-- experience_level: Level of experience required (e.g., "entry-level", "mid-level", "senior")
-- education_requirements: Educational requirements (e.g., "Bachelor's degree", "Master's preferred")
+Your job is to extract ANY job-related information from what the user says and return it as a JSON object. Be smart about inferring information even if not explicitly stated.
 
-Return ONLY a JSON object with the extracted fields. If no relevant information is found, return an empty JSON object {}.
+Available fields to extract:
+- job_title: Any job position, role, or title mentioned
+- company_name: Company, organization, or business name  
+- responsibilities: What the person will do, tasks, duties, job description
+- required_qualifications: Must-have skills, experience, certifications, requirements
+- technical_skills: Programming languages, technologies, tools, software (as array)
+- preferred_qualifications: Nice-to-have skills, bonus qualifications
+- salary_range: Pay, compensation, salary, hourly rate, budget
+- work_arrangement: Remote, onsite, hybrid, location flexibility
+- employment_type: Full-time, part-time, contract, freelance, internship
+- team_size: How many people on team, team structure
+- experience_level: Junior, senior, entry-level, mid-level, years of experience
+- department: Engineering, marketing, sales, HR, which team/division
+- education_requirements: Degree requirements, educational background needed
+- growth_opportunities: Career advancement, learning opportunities, promotion path
 
-Examples:
-User: "We're looking to hire a Senior React Developer for our fintech startup"
-Response: {"job_title": "Senior React Developer", "company_name": "fintech startup", "experience_level": "senior"}
+CONTEXT - Current job description state:
+{context}
 
-User: "They need 5+ years of experience with React, Node.js, and TypeScript. Remote work is fine."
-Response: {"required_qualifications": "5+ years of experience", "technical_skills": ["React", "Node.js", "TypeScript"], "work_arrangement": "remote"}
+INSTRUCTIONS:
+1. Extract ANY relevant information you can find, even partial information
+2. Be liberal in your interpretation - if someone says "we need someone good with computers" that could be technical_skills: ["computers"]
+3. If you can reasonably infer something, include it
+4. Don't be overly strict - extract anything that might be useful
+5. Return a valid JSON object with only the fields that have information
+6. If absolutely nothing job-related, return empty object {}
 
-User: "The salary range is $120k to $150k for this full-time Engineering position"
-Response: {"salary_range": "$120k to $150k", "employment_type": "full-time", "department": "Engineering"}
-
-User: "Yes, that sounds good"
-Response: {}
-
-Now extract information from this user response:
-"""
+USER INPUT: """
     
     async def should_extract(self, text: str) -> bool:
         """Determine if text contains enough information to warrant extraction."""
-        if not text or len(text.strip()) < 5:  # Minimum 5 characters
-            logger.debug(f"[EXTRACTION_FILTER] Too short: '{text}' (length: {len(text.strip()) if text else 0})")
+        if not text or len(text.strip()) < 3:
             return False
         
-        # Skip common meaningless fragments
-        text_lower = text.lower().strip()
-        skip_phrases = ['hello', 'hi', 'yeah', 'yes', 'no', 'ok', 'okay', 'um', 'uh', 'the wind', 'income']
-        if text_lower in skip_phrases or len(text.split()) < 2:
-            logger.debug(f"[EXTRACTION_FILTER] Skipping common phrase or single word: '{text}'")
-            return False
-        
-        # Only extract if it might contain meaningful JD info
-        has_potential_info = any(keyword in text_lower for keyword in [
-            'job', 'title', 'position', 'role', 'company', 'experience', 'year', 'skill', 'salary', 'compensation',
-            'remote', 'hybrid', 'onsite', 'team', 'developer', 'engineer', 'manager', 'analyst', 'specialist',
-            'python', 'javascript', 'java', 'react', 'node', 'aws', 'kubernetes', 'docker', 'responsibilities',
-            'qualifications', 'requirements', 'bachelor', 'master', 'degree', 'certification'
-        ])
-        
-        if not has_potential_info and len(text.split()) < 3:
-            logger.debug(f"[EXTRACTION_FILTER] No meaningful content detected: '{text}'")
-            return False
-        
-        logger.info(f"[EXTRACTION_FILTER] ✅ Will extract from: '{text[:80]}{'...' if len(text) > 80 else ''}' (length: {len(text.strip())})")
+        # Always extract - let LLM decide what's relevant
+        logger.info(f"[EXTRACTION_FILTER] ✅ Will extract from: '{text[:80]}{'...' if len(text) > 80 else ''}'")
         return True
     
+    
+    
+    def get_context_for_llm(self) -> str:
+        """Generate context about current JD state for the LLM."""
+        collected_fields = self.jd_data.get_collected_fields()
+        missing_fields = self.jd_data.get_missing_fields()
+        
+        context_parts = []
+        
+        if collected_fields:
+            context_parts.append("ALREADY COLLECTED:")
+            for field in collected_fields:
+                value = getattr(self.jd_data, field, None)
+                if value:
+                    if isinstance(value, list):
+                        context_parts.append(f"  {field}: {value}")
+                    else:
+                        context_parts.append(f"  {field}: \"{value}\"")
+        
+        if missing_fields:
+            context_parts.append(f"STILL MISSING: {', '.join(missing_fields)}")
+        
+        if not context_parts:
+            return "No information collected yet - extract anything you can find!"
+            
+        return "\n".join(context_parts)
+
     async def extract_information(self, text: str) -> Dict:
         """Extract structured information from text using LLM."""
+        import time
+        extraction_id = f"ext_{int(time.time() * 1000) % 10000}"
+        logger.info(f"[EXTRACTION] 🔍 [{extraction_id}] Starting extraction for: \"{text[:80]}{'...' if len(text) > 80 else ''}\"")
+        
         try:
-            logger.info(f"[EXTRACTION] 🔍 Processing JD input: \"{text[:80]}{'...' if len(text) > 80 else ''}\"")
+            # Get current context
+            context = self.get_context_for_llm()
             
-            # Prepare extraction prompt
-            full_prompt = self.extraction_prompt + f"\n\nUser response: \"{text}\""
-            logger.debug(f"[EXTRACTION] Sending prompt to extraction LLM (length: {len(full_prompt)} chars)")
+            # Build prompt with context
+            full_prompt = self.extraction_prompt.replace("{context}", context) + f"\"{text}\""
+            
+            logger.info(f"[EXTRACTION] [{extraction_id}] Context: {context}")
             
             # Call extraction LLM
             messages = [{"role": "user", "content": full_prompt}]
             
             # Use the LLM service to get extraction results
-            logger.info("[EXTRACTION] Calling extraction LLM...")
+            logger.info(f"[EXTRACTION] [{extraction_id}] Calling extraction LLM...")
             response_text = await self._call_extraction_llm(messages)
             
-            logger.info(f"[EXTRACTION] Raw LLM response: '{response_text}'")
+            logger.info(f"[EXTRACTION] [{extraction_id}] Raw LLM response: '{response_text[:300]}{'...' if len(response_text) > 300 else ''}'")
             
             # Clean up response - remove markdown code blocks if present
             clean_response = response_text.strip()
@@ -286,25 +297,45 @@ Now extract information from this user response:
                 clean_response = clean_response[:-3]  # Remove ```
             clean_response = clean_response.strip()
             
-            logger.info(f"[EXTRACTION] Cleaned response: '{clean_response}'")
+            logger.info(f"[EXTRACTION] [{extraction_id}] Cleaned response: '{clean_response[:300]}{'...' if len(clean_response) > 300 else ''}'")
             
-            # Parse JSON response
-            extracted_data = json.loads(clean_response)
+            # Parse JSON response with better error handling
+            try:
+                extracted_data = json.loads(clean_response)
+                if extracted_data:
+                    logger.info(f"[EXTRACTION] [{extraction_id}] ✅ Successfully extracted: {list(extracted_data.keys())} -> {extracted_data}")
+                else:
+                    logger.info(f"[EXTRACTION] [{extraction_id}] No relevant JD information found in user response")
+                return extracted_data
+            except json.JSONDecodeError as e:
+                logger.warning(f"[EXTRACTION] [{extraction_id}] ⚠️ JSON parsing error: {e}")
+                logger.warning(f"[EXTRACTION] [{extraction_id}] Raw response was: '{response_text[:500]}...'")
+                logger.warning(f"[EXTRACTION] [{extraction_id}] Cleaned response was: '{clean_response[:500]}...'")
+                logger.warning(f"[EXTRACTION] [{extraction_id}] Input text was: '{text[:200]}'")
+                
+                # Try to salvage partial JSON
+                try:
+                    # Look for JSON-like content in the response
+                    import re
+                    json_match = re.search(r'\{.*\}', clean_response, re.DOTALL)
+                    if json_match:
+                        json_str = json_match.group(0)
+                        logger.info(f"[EXTRACTION] [{extraction_id}] Attempting to parse extracted JSON: '{json_str[:200]}...'")
+                        extracted_data = json.loads(json_str)
+                        logger.info(f"[EXTRACTION] [{extraction_id}] 🔄 Recovered from parsing error: {extracted_data}")
+                        return extracted_data
+                except Exception as recovery_error:
+                    logger.warning(f"[EXTRACTION] [{extraction_id}] Could not recover from JSON error: {recovery_error}")
+                
+                return {}
             
-            if extracted_data:
-                logger.info(f"[EXTRACTION] ✅ Successfully extracted: {list(extracted_data.keys())} -> {extracted_data}")
-            else:
-                logger.info("[EXTRACTION] No relevant JD information found in user response")
-            
-            return extracted_data
-            
-        except json.JSONDecodeError as e:
-            logger.warning(f"[EXTRACTION] ⚠️ JSON parsing error: {e} | Raw response: '{response_text[:200]}'")
-            return {}
         except Exception as e:
-            logger.error(f"[EXTRACTION] ❌ Extraction failed: {str(e)} | Input text: '{text[:100]}'")
+            logger.error(f"[EXTRACTION] [{extraction_id}] ❌ Extraction failed: {str(e)}")
+            logger.error(f"[EXTRACTION] [{extraction_id}] Input text: '{text[:100]}'")
+            logger.error(f"[EXTRACTION] [{extraction_id}] Prompt length: {len(full_prompt) if 'full_prompt' in locals() else 'unknown'}")
+            logger.error(f"[EXTRACTION] [{extraction_id}] JD fields collected: {len(self.jd_data.get_collected_fields())}")
             import traceback
-            logger.error(f"[EXTRACTION] Stack trace: {traceback.format_exc()}")
+            logger.error(f"[EXTRACTION] [{extraction_id}] Stack trace: {traceback.format_exc()}")
             return {}
     
     async def _call_extraction_llm(self, messages: List[Dict]) -> str:
@@ -327,8 +358,9 @@ Now extract information from this user response:
             response = await client.chat.completions.create(
                 model="llama-3.1-8b-instant",
                 messages=messages,
-                temperature=0.1,  # Low temperature for consistent extraction
-                max_tokens=500
+                temperature=0.4,  # Higher temperature for better extraction
+                max_tokens=800,
+                top_p=0.5  # More flexible responses
             )
             
             response_text = response.choices[0].message.content or "{}"
@@ -382,15 +414,21 @@ Now extract information from this user response:
             logger.info("[EXTRACTION_UPDATE] No valid updates made from extracted data")
     
     async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
-        """Process frames and extract information from user speech."""
+        """Process frames and extract information from user speech and capture assistant responses."""
         await super().process_frame(frame, direction)
         
-        # Only process TextFrames from STT (user speech)
-        if isinstance(frame, TextFrame) and direction == FrameDirection.DOWNSTREAM:
+        if isinstance(frame, TextFrame):
             text = frame.text.strip()
             if text:
-                logger.info(f"[EXTRACTOR_FRAME] Received JD creation text: '{text}'")
-                await self._add_to_sentence_buffer(text)
+                # User speech (from STT, going downstream)
+                if direction == FrameDirection.DOWNSTREAM:
+                    logger.info(f"[EXTRACTOR_FRAME] Received user text: '{text}'")
+                    await self._add_to_sentence_buffer(text)
+                
+                # Assistant speech (from LLM, going upstream to TTS)  
+                elif direction == FrameDirection.UPSTREAM:
+                    logger.info(f"[EXTRACTOR_FRAME] Received assistant text: '{text[:60]}{'...' if len(text) > 60 else ''}'")
+                    # Just log assistant messages, no complex history
         
         # Always pass frame through
         await self.push_frame(frame, direction)
@@ -406,8 +444,26 @@ Now extract information from this user response:
         
         logger.info(f"[SENTENCE_BUFFER] Added: '{text}' (buffer size: {len(self._sentence_buffer)})")
         
-        # Schedule buffer processing after timeout
-        asyncio.create_task(self._process_buffer_after_delay())
+        # Check if we have a complete sentence or enough text
+        combined_text = ' '.join(self._sentence_buffer).strip()
+        
+        # Process immediately if we have enough meaningful content
+        if (len(combined_text) > 15 and 
+            (text.endswith('.') or text.endswith('!') or text.endswith('?') or 
+             len(combined_text) > 50 or len(self._sentence_buffer) > 8)):
+            
+            logger.info(f"[SENTENCE_BUFFER] Processing immediately: '{combined_text[:60]}...'")
+            self._sentence_buffer.clear()
+            
+            # Process extraction immediately
+            if await self.should_extract(combined_text):
+                if len(self._extraction_tasks) < self._max_concurrent_extractions:
+                    logger.info(f"[EXTRACTOR_FRAME] Creating immediate extraction task")
+                    task = asyncio.create_task(self._extract_and_update_with_cleanup(combined_text))
+                    self._extraction_tasks.add(task)
+        else:
+            # Schedule buffer processing after timeout as fallback
+            asyncio.create_task(self._process_buffer_after_delay())
     
     async def _process_buffer_after_delay(self):
         """Process buffer after delay if no new text arrives."""
@@ -478,62 +534,68 @@ class JDFlowManager:
         self.guidance_pending = False  # track if guidance is pending response
     
     def get_guidance_message(self) -> Optional[str]:
-        """Generate guidance message based on missing information."""
-        missing_fields = self.interview_data.get_missing_fields()
+        """Generate adaptive guidance message based on missing information."""
+        missing_fields = self.jd_data.get_missing_fields()
+        collected_fields = self.jd_data.get_collected_fields()
         
-        # Since extraction is disabled, all fields will be missing - provide guidance anyway
+        # If we have most information, provide completion guidance
+        completion_percentage = len(collected_fields) / len(self.jd_data.get_all_fields())
+        
         if not missing_fields:
-            return "Great! I have all the information I need. Is there anything else you'd like to discuss about the role?"
+            return "Excellent! We have all the information needed. The job description is taking shape nicely. Is there anything you'd like to add or refine?"
         
-        # Focus on one field at a time, prioritizing by importance
-        priority_fields = ["name", "years_experience", "current_role", "skills", "work_preference", "salary_expectation"]
+        # Adaptive guidance based on completion percentage
+        if completion_percentage < 0.3:  # Less than 30% complete
+            # Early stage - ask broad, open-ended questions
+            core_missing = [f for f in ["job_title", "company_name", "responsibilities"] if f in missing_fields]
+            if core_missing:
+                field = core_missing[0]
+                if field == "job_title":
+                    return "What position are you looking to hire for? Feel free to share as much detail as you'd like about the role."
+                elif field == "company_name":
+                    return "What's your company name, and can you tell me a bit about what you do?"
+                elif field == "responsibilities":
+                    return "What would this person be doing day-to-day? What are the key responsibilities?"
         
-        for field in priority_fields:
-            if field in missing_fields:
-                attempts = self.guidance_attempts.get(field, 0)
-                
-                attempts = self.guidance_attempts.get(field, 0)
-                escalated = self.should_escalate_guidance(field)
-                
-                logger.info(f"[FLOW_GUIDANCE] Generating guidance for '{field}' (attempt #{attempts}, escalated: {escalated})")
-                
-                if escalated:
-                    logger.info(f"[FLOW_GUIDANCE] Using DIRECT approach for '{field}' after {attempts} attempts")
-                    # More direct approach after multiple attempts
-                    if field == "name":
-                        return "I need to get your full name for our interview records. Please tell me your first and last name."
-                    elif field == "years_experience":
-                        return "I need the exact number of years of professional experience you have. Please give me a specific number."
-                    elif field == "current_role":
-                        return "I need to know your current job title or the specific position you're applying for. What is your exact role?"
-                    elif field == "skills":
-                        return "I need specific technical skills. Please list the programming languages, frameworks, or technologies you work with."
-                    elif field == "work_preference":
-                        return "I need to know your work arrangement preference. Do you want remote, hybrid, or onsite work? Please choose one."
-                    elif field == "salary_expectation":
-                        return "I need your salary expectations. Please give me a specific range or amount you're looking for."
-                else:
-                    logger.info(f"[FLOW_GUIDANCE] Using FOCUSED approach for '{field}' (attempt #{attempts})")
-                    # Focused but friendly approach for initial attempts
-                    if field == "name":
-                        return "Let's start with your full name please."
-                    elif field == "years_experience":
-                        return "How many years of professional experience do you have? Please give me a specific number."
-                    elif field == "current_role":
-                        return "What's your current job title or what specific position are you looking for?"
-                    elif field == "skills":
-                        return "What specific programming languages and technologies do you work with?"
-                    elif field == "work_preference":
-                        return "For this role, do you prefer remote work, hybrid, or working onsite?"
-                    elif field == "salary_expectation":
-                        return "What salary range are you looking for in this position?"
-                
-                return None  # Focus on one field at a time
+        elif completion_percentage < 0.7:  # 30-70% complete
+            # Middle stage - ask for specific details, but keep it conversational
+            important_missing = [f for f in ["required_qualifications", "technical_skills", "salary_range", "work_arrangement"] if f in missing_fields]
+            if important_missing:
+                field = important_missing[0]
+                if field == "required_qualifications":
+                    return "What kind of experience or qualifications should candidates have?"
+                elif field == "technical_skills":
+                    return "Are there specific technical skills or technologies they'll need to know?"
+                elif field == "salary_range":
+                    return "What's the compensation range you're thinking for this position?"
+                elif field == "work_arrangement":
+                    return "Is this position remote, in-office, or flexible?"
+        
+        else:  # Over 70% complete
+            # Final stage - ask for nice-to-have details
+            remaining = missing_fields[:2]  # Focus on just 1-2 remaining fields
+            field_questions = {
+                "preferred_qualifications": "Are there any nice-to-have qualifications or skills?",
+                "team_size": "What size team would they be working with?",
+                "growth_opportunities": "What growth or advancement opportunities does this role offer?",
+                "department": "Which department or division is this role in?",
+                "experience_level": "What level of seniority are you looking for?",
+                "education_requirements": "Any specific educational requirements?",
+                "employment_type": "Is this full-time, part-time, or contract?"
+            }
+            
+            for field in remaining:
+                if field in field_questions:
+                    return field_questions[field]
+        
+        # Fallback - just ask about the first missing field naturally
+        if missing_fields:
+            return f"Could you tell me more about the {missing_fields[0].replace('_', ' ')}?"
         
         return None
     
     def should_provide_guidance(self) -> bool:
-        """Check if it's time to provide guidance."""
+        """Check if guidance should be provided - much more adaptive approach."""
         import time
         current_time = time.time()
         
@@ -542,18 +604,35 @@ class JDFlowManager:
             logger.info("[FLOW_GUIDANCE] Skipping - guidance pending response")
             return False
         
+        # Calculate completion percentage to determine guidance frequency
+        collected_fields = self.jd_data.get_collected_fields()
+        completion_percentage = len(collected_fields) / len(self.jd_data.get_all_fields())
+        
+        # Adaptive guidance intervals based on completion
+        if completion_percentage < 0.3:
+            guidance_interval = 90  # Longer intervals early on - let natural conversation flow
+        elif completion_percentage < 0.7:
+            guidance_interval = 75  # Medium intervals in middle phase
+        else:
+            guidance_interval = 120  # Even longer intervals near completion
+        
+        # Extended cooldown after sending guidance
+        cooldown_time = min(90, guidance_interval)
+        
         # Check cooldown period after sending guidance
-        if self.last_guidance_field and current_time - self.last_guidance_time < self.guidance_cooldown:
-            remaining = self.guidance_cooldown - (current_time - self.last_guidance_time)
-            logger.info(f"[FLOW_GUIDANCE] Cooldown active - {remaining:.0f}s remaining")
+        if self.last_guidance_field and current_time - self.last_guidance_time < cooldown_time:
+            remaining = cooldown_time - (current_time - self.last_guidance_time)
+            logger.info(f"[FLOW_GUIDANCE] Adaptive cooldown active - {remaining:.0f}s remaining (completion: {completion_percentage:.0%})")
             return False
         
         # Check if enough time has passed since last guidance
-        if current_time - self.last_guidance_time >= self.guidance_interval:
-            logger.info("[FLOW_GUIDANCE] Time threshold met - guidance allowed")
+        if current_time - self.last_guidance_time >= guidance_interval:
+            logger.info(f"[FLOW_GUIDANCE] Adaptive guidance threshold met - guidance allowed (completion: {completion_percentage:.0%}, interval: {guidance_interval}s)")
             self.last_guidance_time = current_time
             return True
         
+        remaining_time = guidance_interval - (current_time - self.last_guidance_time)
+        logger.debug(f"[FLOW_GUIDANCE] {remaining_time:.0f}s remaining until next guidance opportunity")
         return False
     
     def mark_guidance_attempt(self):

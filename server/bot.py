@@ -99,9 +99,16 @@ async def run_bot(transport: BaseTransport):
     # Initialize JD information extractor
     extractor = JDExtractor(jd_data, os.getenv("GROQ_API_KEY"))
 
-    # Job Description creation system message
+    # Job Description creation system message (dynamic)
     logger.info("[BOT] 🎯 INITIALIZING JOB DESCRIPTION CREATION BOT")
-    system_prompt = """You are a professional HR assistant helping to create comprehensive job descriptions. Your PRIMARY OBJECTIVE is to systematically collect specific information about the role being created.
+    
+    def get_dynamic_system_prompt(jd_data: JDData) -> str:
+        """Generate a dynamic system prompt that includes current JD status."""
+        collected_fields = jd_data.get_collected_fields()
+        missing_fields = jd_data.get_missing_fields()
+        
+        # Base system prompt
+        base_prompt = """You are a professional HR assistant helping to create comprehensive job descriptions. Your PRIMARY OBJECTIVE is to systematically collect specific information about the role being created.
 
 CRITICAL REQUIREMENTS - You MUST obtain these key pieces of information:
 1. Job title and role level (e.g., Senior Software Engineer, Marketing Manager)
@@ -118,18 +125,44 @@ CRITICAL REQUIREMENTS - You MUST obtain these key pieces of information:
 JOB DESCRIPTION STRATEGY:
 - Be friendly and professional, but stay focused on gathering comprehensive JD information
 - Ask detailed questions to understand the role requirements thoroughly
-- Don't move to the next section until you have sufficient detail
+- Adapt your approach based on what information has already been collected
 - If someone gives a vague response, ask follow-up questions for specificity
 - Help them think through all aspects of the role
+- When users provide multiple pieces of information at once, acknowledge all of it
 
 CONVERSATION APPROACH:
-- Start by understanding the role they want to create
-- Systematically work through job title, responsibilities, qualifications, skills, etc.
-- Be conversational but purposeful - every question should build the JD
+- Be conversational and adaptive based on the information already gathered
+- Focus on missing information while acknowledging what's been collected
 - Help them consider aspects they might not have thought of
 - Provide suggestions based on common industry practices
+- Build naturally on the conversation flow rather than following a rigid sequence
 
-Remember: Your success is measured by how complete and detailed the job description becomes. Be thorough and help them create an attractive, comprehensive JD."""
+IMPORTANT: The system is automatically extracting information from our conversation in real-time. You don't need to explicitly confirm every detail - focus on natural conversation and gathering missing information."""
+        
+        # Add current JD status if there's collected information
+        if collected_fields:
+            status_info = "\n\nCURRENT JD STATUS:"
+            status_info += f"\n✅ INFORMATION COLLECTED ({len(collected_fields)}/{len(jd_data.get_all_fields())} fields):"
+            for field in collected_fields:
+                value = getattr(jd_data, field, None)
+                if value:
+                    if isinstance(value, list) and value:
+                        status_info += f"\n- {field}: {', '.join(value)}"
+                    elif isinstance(value, str) and value:
+                        display_value = value[:100] + "..." if len(value) > 100 else value
+                        status_info += f"\n- {field}: {display_value}"
+            
+            if missing_fields:
+                status_info += f"\n\n❌ STILL MISSING ({len(missing_fields)} fields): {', '.join(missing_fields)}"
+                status_info += "\nFocus your questions on gathering this missing information in a natural, conversational way."
+            else:
+                status_info += "\n\n🎉 ALL INFORMATION COLLECTED! Help them refine and finalize the job description."
+            
+            base_prompt += status_info
+        
+        return base_prompt + "\n\nRemember: Be thorough, adaptive, and help them create an attractive, comprehensive JD."
+    
+    system_prompt = get_dynamic_system_prompt(jd_data)
     
     messages = [
         {
@@ -161,10 +194,28 @@ Remember: Your success is measured by how complete and detailed the job descript
             loop = asyncio.get_event_loop()
             if loop.is_running():
                 loop.create_task(jd_update_callback(field_name, field_value))
+                # Also update the system context with latest JD status
+                loop.create_task(update_system_context())
             else:
                 logger.warning("[JD_CALLBACK] Event loop not running, skipping async callback")
         except Exception as e:
             logger.error(f"[JD_CALLBACK] Error creating async task: {e}")
+    
+    async def update_system_context():
+        """Update the system context with current JD status."""
+        try:
+            # Generate updated system prompt
+            updated_prompt = get_dynamic_system_prompt(jd_data)
+            
+            # Update the system message in the context
+            if messages and messages[0].get("role") == "system":
+                messages[0]["content"] = updated_prompt
+                logger.info("[SYSTEM_UPDATE] Updated system prompt with latest JD status")
+                logger.debug(f"[SYSTEM_UPDATE] System prompt preview: {updated_prompt[:300]}...")
+            else:
+                logger.warning("[SYSTEM_UPDATE] Could not find system message to update")
+        except Exception as e:
+            logger.error(f"[SYSTEM_UPDATE] Error updating system context: {e}")
     
     jd_data.add_update_callback(sync_callback)
     logger.info("[BOT] JD data callback registered successfully")
@@ -258,9 +309,9 @@ Remember: Your success is measured by how complete and detailed the job descript
 
 async def delayed_flow_monitor(task, flow_manager, messages, context_aggregator):
     """Start flow monitor after a delay to let initial conversation begin."""
-    logger.info("[FLOW_MONITOR] Waiting 60 seconds before starting guidance")
-    await asyncio.sleep(60)  # Wait 60 seconds for natural conversation to start
-    logger.info("[FLOW_MONITOR] Starting JD creation flow monitoring")
+    logger.info("[FLOW_MONITOR] Waiting 120 seconds before starting adaptive guidance")
+    await asyncio.sleep(120)  # Wait 2 minutes for natural conversation to start
+    logger.info("[FLOW_MONITOR] Starting adaptive JD creation flow monitoring")
     await jd_flow_monitor(task, flow_manager, messages, context_aggregator)
 
 
@@ -271,7 +322,7 @@ async def jd_flow_monitor(task, flow_manager, messages, context_aggregator):
     try:
         monitor_cycle = 0
         while True:
-            await asyncio.sleep(45)  # Check every 45 seconds (reduced frequency)
+            await asyncio.sleep(60)  # Check every 60 seconds (more adaptive frequency)
             monitor_cycle += 1
             
             # Check if progress was made on guided field first
