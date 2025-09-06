@@ -95,7 +95,7 @@ class JDExtractor(FrameProcessor):
         self.jd_data = jd_data
         self._extraction_tasks = set()  # Track active extraction tasks
         self._max_concurrent_extractions = 3  # Limit concurrent extractions
-        self.api_key = api_key  # Store API key for direct Gemini calls
+        self.api_key = api_key  # Store API key for direct Groq calls
         
         # Sentence buffer to accumulate speech fragments
         self._sentence_buffer = []
@@ -211,42 +211,35 @@ Now extract information from this user response:
             return {}
     
     async def _call_extraction_llm(self, messages: List[Dict]) -> str:
-        """Helper method to call the extraction LLM using Google GenAI SDK."""
+        """Helper method to call the extraction LLM using Groq API."""
         try:
-            logger.info("[EXTRACTION_LLM] Making actual Gemini LLM call for information extraction")
+            logger.info("[EXTRACTION_LLM] Making actual Groq LLM call for information extraction")
             
-            # Use Google GenAI SDK directly
-            from google import genai
+            # Use OpenAI SDK with Groq endpoint
+            import openai
             
-            # Create client with API key
-            client = genai.Client(api_key=self.api_key)
-            
-            # Convert messages to content text (combine all messages into one prompt)
-            content_parts = []
-            for msg in messages:
-                if msg.get('role') == 'user':
-                    content_parts.append(msg.get('content', ''))
-            
-            full_content = '\n\n'.join(content_parts)
-            logger.info(f"[EXTRACTION_LLM] Sending content to Gemini: {full_content[:200]}...")
-            
-            # Make the API call using Gemini 2.5 Flash (recommended for 2025)
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=full_content,
-                config=genai.types.GenerateContentConfig(
-                    temperature=0.1,  # Low temperature for consistent extraction
-                    max_output_tokens=500,
-                    candidate_count=1
-                )
+            # Create client with Groq endpoint
+            client = openai.AsyncOpenAI(
+                api_key=self.api_key,
+                base_url="https://api.groq.com/openai/v1"
             )
             
-            response_text = response.text or "{}"
-            logger.info(f"[EXTRACTION_LLM] Gemini response: {response_text}")
+            logger.info(f"[EXTRACTION_LLM] Sending {len(messages)} messages to Groq")
+            
+            # Make the API call using Llama model
+            response = await client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=messages,
+                temperature=0.1,  # Low temperature for consistent extraction
+                max_tokens=500
+            )
+            
+            response_text = response.choices[0].message.content or "{}"
+            logger.info(f"[EXTRACTION_LLM] Groq response: {response_text}")
             return response_text
             
         except Exception as e:
-            logger.error(f"[EXTRACTION_LLM] Gemini call failed: {e}")
+            logger.error(f"[EXTRACTION_LLM] Groq call failed: {e}")
             return "{}"
     
     async def update_jd_data(self, extracted_data: Dict) -> None:

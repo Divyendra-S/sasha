@@ -21,6 +21,7 @@ export function VoiceChat() {
     isListening,
     isProcessing,
   } = useVoiceChat();
+  
 
   const getConnectionStatus = () => {
     if (isConnecting) return { label: "Connecting...", color: "secondary" as const };

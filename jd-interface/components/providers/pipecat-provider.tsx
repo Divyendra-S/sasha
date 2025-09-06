@@ -17,23 +17,26 @@ export function PipecatProvider({ children }: PipecatProviderProps) {
       return null;
     }
     
-    return new PipecatClient({
-      transport: new SmallWebRTCTransport({
-        // Use the simpler connectionUrl format for now
-        connectionUrl: `${window.location.origin}/api/offer`,
-        // Add audio quality settings
-        audioCodec: 'opus',
-        waitForICEGathering: true,
-      }),
-      enableMic: true,
-      enableCam: false,
-      // Add better audio configuration
-      config: {
-        // Improve audio quality and reduce latency
+    try {
+      return new PipecatClient({
+        transport: new SmallWebRTCTransport({
+          connectionUrl: `${window.location.origin}/api/offer`,
+          // Optimize audio for speech
+          audioCodec: 'opus',
+          waitForICEGathering: true,
+          // Reduce connection timeouts for faster feedback
+          // Note: rtcConfiguration might not be available in this version
+          // connectionTimeout: 15000,
+          // reconnectionTimeout: 5000,
+        }),
         enableMic: true,
         enableCam: false,
-      },
-    });
+        // Basic configuration - advanced options may not be available in this version
+      });
+    } catch (error) {
+      console.error('Failed to initialize PipecatClient:', error);
+      return null;
+    }
   }, []);
 
   if (!client) {

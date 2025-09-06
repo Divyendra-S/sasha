@@ -50,6 +50,12 @@ export function useVoiceChat() {
         }
       }
 
+      // Clear any previous processing state
+      updateVoiceStatus({
+        isProcessing: false,
+        isListening: false,
+      });
+
       // Start the bot with proper API request parameters
       await client.startBotAndConnect({
         endpoint: `${window.location.origin}/api/offer`,
@@ -78,6 +84,7 @@ export function useVoiceChat() {
       updateVoiceStatus({
         isConnected: false,
         isProcessing: false,
+        isListening: false,
       });
     } finally {
       setIsConnecting(false);
@@ -106,32 +113,46 @@ export function useVoiceChat() {
       return;
     }
 
+
     try {
       // Enable microphone and update listening status
       if (client) {
         await client.enableMic(true);
-        updateVoiceStatus({ isListening: true });
+        updateVoiceStatus({ 
+          isListening: true,
+          isProcessing: false 
+        });
         console.log("🎤 Started listening - microphone enabled");
       }
     } catch (err) {
       console.error("❌ Error starting to listen:", err);
-      updateVoiceStatus({ isListening: false });
+      updateVoiceStatus({ 
+        isListening: false, 
+        isProcessing: false 
+      });
     }
-  }, [voiceSession.isConnected, connect, updateVoiceStatus, client]);
+  }, [voiceSession.isConnected, voiceSession.isListening, connect, updateVoiceStatus, client]);
 
   const stopListening = useCallback(async () => {
+
     try {
       // Disable microphone and update listening status
       if (client) {
         await client.enableMic(false);
-        updateVoiceStatus({ isListening: false });
+        updateVoiceStatus({ 
+          isListening: false,
+          isProcessing: false 
+        });
         console.log("🛑 Stopped listening - microphone disabled");
       }
     } catch (err) {
       console.error("❌ Error stopping listening:", err);
-      updateVoiceStatus({ isListening: false });
+      updateVoiceStatus({ 
+        isListening: false,
+        isProcessing: false 
+      });
     }
-  }, [updateVoiceStatus, client]);
+  }, [voiceSession.isListening, updateVoiceStatus, client]);
 
   // Set up event listeners
   useEffect(() => {
@@ -153,8 +174,8 @@ export function useVoiceChat() {
 
     const handleUserTranscript = (data: any) => {
       console.log("📝 User transcript:", data);
-      if (data.text) {
-        addMessage("user", data.text);
+      if (data.text && data.text.trim()) {
+        addMessage("user", data.text.trim());
         updateVoiceStatus({ isProcessing: false });
       }
     };
@@ -194,12 +215,20 @@ export function useVoiceChat() {
 
     const handleError = (message: any) => {
       console.error("❌ RTVI Error:", message);
-      setError(message?.data?.message || message?.message || "Connection error");
+      const errorMsg = message?.data?.message || message?.message || "Connection error";
+      setError(errorMsg);
       updateVoiceStatus({
         isConnected: false,
         isListening: false,
         isProcessing: false,
       });
+      
+      // Clear error after 10 seconds to allow retry
+      setTimeout(() => {
+        if (errorMsg === message?.data?.message || message?.message || "Connection error") {
+          setError(null);
+        }
+      }, 10000);
     };
 
     // Add event listeners with correct Pipecat event names

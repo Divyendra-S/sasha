@@ -79,9 +79,9 @@ async def run_bot(transport: BaseTransport):
     )
     
     llm = OpenAILLMService(
-        api_key=os.getenv("GOOGLE_API_KEY"),
-        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-        model="gemini-1.5-flash"
+        api_key=os.getenv("GROQ_API_KEY"),
+        base_url="https://api.groq.com/openai/v1",
+        model="llama-3.3-70b-versatile"
     )
     
     tts = GroqTTSService(
@@ -91,7 +91,7 @@ async def run_bot(transport: BaseTransport):
     )
 
     # Initialize JD information extractor
-    extractor = JDExtractor(jd_data, os.getenv("GOOGLE_API_KEY"))
+    extractor = JDExtractor(jd_data, os.getenv("GROQ_API_KEY"))
 
     # Job Description creation system message
     logger.info("[BOT] 🎯 INITIALIZING JOB DESCRIPTION CREATION BOT")
