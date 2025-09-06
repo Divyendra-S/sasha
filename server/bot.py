@@ -12,7 +12,7 @@ structured information. It runs a professional HR assistant that
 guides users through the complete JD creation process.
 
 Required AI services:
-    - Deepgram (Speech-to-Text)
+    - Groq (Speech-to-Text)
     - Gemini (LLM for both conversation and extraction)
     - Groq (Text-to-Speech)
 
@@ -49,7 +49,7 @@ from pipecat.processors.frameworks.rtvi import RTVIConfig, RTVIObserver, RTVIPro
 from pipecat.frames.frames import LLMMessagesAppendFrame
 from pipecat.runner.types import RunnerArguments
 from pipecat.runner.types import SmallWebRTCRunnerArguments
-from pipecat.services.deepgram.stt import DeepgramSTTService
+from pipecat.services.groq.stt import GroqSTTService
 from pipecat.services.groq.tts import GroqTTSService
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.transports.base_transport import BaseTransport, TransportParams
@@ -74,14 +74,8 @@ async def run_bot(transport: BaseTransport):
     api_server.start()
 
     # Initialize services with better configuration for complete sentences
-    stt = DeepgramSTTService(
-        api_key=os.getenv("DEEPGRAM_API_KEY"),
-        options={
-            "punctuate": True,
-            "smart_format": True,
-            "utterances": True,  # Better sentence detection
-            "interim_results": False  # Wait for complete sentences
-        }
+    stt = GroqSTTService(
+        api_key=os.getenv("GROQ_API_KEY")
     )
     
     llm = OpenAILLMService(

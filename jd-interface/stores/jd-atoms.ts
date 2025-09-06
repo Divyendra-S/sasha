@@ -90,24 +90,33 @@ export const bulkUpdateJDAtom = atom(
     
     // Map and validate fields - backend field names to frontend field names
     const fieldMapping: Record<string, keyof JobDescription> = {
+      // Frontend field names (direct mapping)
       title: 'title',
-      job_title: 'title',
-      company: 'company', 
-      company_name: 'company',
+      company: 'company',
       description: 'description',
-      responsibilities: 'description',
       requirements: 'requirements',
-      required_qualifications: 'requirements',
       benefits: 'benefits',
-      preferred_qualifications: 'benefits',
       location: 'location',
-      work_arrangement: 'workArrangement',
+      workArrangement: 'workArrangement',
       salaryRange: 'salaryRange',
-      salary_range: 'salaryRange',
       employmentType: 'employmentType',
+      experienceLevel: 'experienceLevel',
+      department: 'department',
+      teamSize: 'teamSize',
+      technicalSkills: 'technicalSkills',
+      educationRequirements: 'educationRequirements',
+      growthOpportunities: 'growthOpportunities',
+      
+      // Backend field names (snake_case to camelCase mapping)
+      job_title: 'title',
+      company_name: 'company',
+      responsibilities: 'description',
+      required_qualifications: 'requirements',
+      preferred_qualifications: 'benefits',
+      work_arrangement: 'workArrangement',
+      salary_range: 'salaryRange',
       employment_type: 'employmentType',
       experience_level: 'experienceLevel',
-      department: 'department',
       team_size: 'teamSize',
       technical_skills: 'technicalSkills',
       education_requirements: 'educationRequirements',
@@ -126,9 +135,19 @@ export const bulkUpdateJDAtom = atom(
         else if (targetField === 'technicalSkills' && typeof value === 'string') {
           (validUpdates as any)[targetField] = [value];
         }
-        // Convert array to string for requirements/benefits if needed (for backend compatibility)  
+        // Convert string to array for requirements/benefits if needed (for backend compatibility)  
         else if ((targetField === 'requirements' || targetField === 'benefits') && typeof value === 'string') {
-          (validUpdates as any)[targetField] = value.split('\n').filter(item => item.trim());
+          // Split by newlines first, then by common separators if no newlines
+          let items = value.split('\n').filter(item => item.trim());
+          if (items.length === 1 && items[0]) {
+            // If no newlines, try splitting by commas, semicolons, or bullet points
+            items = items[0].split(/[,;•]/).map(item => item.trim()).filter(item => item);
+          }
+          (validUpdates as any)[targetField] = items;
+        }
+        // Convert number to string for teamSize field
+        else if (targetField === 'teamSize' && typeof value === 'number') {
+          (validUpdates as any)[targetField] = value.toString();
         }
         // Validate string fields
         else if (typeof value === 'string') {

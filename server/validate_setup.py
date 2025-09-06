@@ -51,9 +51,8 @@ def check_environment_variables():
     load_dotenv(override=True)
     
     required_vars = {
-        "DEEPGRAM_API_KEY": "Speech-to-Text service",
-        "GOOGLE_API_KEY": "Gemini LLM for conversation and extraction",
-        "GROQ_API_KEY": "Text-to-Speech service"
+        "GROQ_API_KEY": "Speech-to-Text and Text-to-Speech service",
+        "GOOGLE_API_KEY": "Gemini LLM for conversation and extraction"
     }
     
     missing_vars = []
@@ -155,7 +154,7 @@ def check_pipecat_components():
         ("pipecat.processors.frame_processor", "FrameProcessor"),
         ("pipecat.frames.frames", "TextFrame"),
         ("pipecat.services.openai.llm", "OpenAILLMService"),
-        ("pipecat.services.deepgram.stt", "DeepgramSTTService"),
+        ("pipecat.services.groq.stt", "GroqSTTService"),
         ("pipecat.services.groq.tts", "GroqTTSService"),
     ]
     
@@ -176,7 +175,7 @@ def check_pipecat_components():
     if missing_components:
         print(f"\n⚠️  Missing {len(missing_components)} Pipecat components")
         print("Make sure you have the correct pipecat version installed:")
-        print("   pip install 'pipecat-ai[webrtc,silero,deepgram,openai,cartesia,runner]>=0.0.77'")
+        print("   pip install 'pipecat-ai[webrtc,silero,groq,openai,cartesia,runner]>=0.0.77'")
         return False
     
     print("✅ All required Pipecat components are available")
@@ -264,9 +263,8 @@ def main():
         
         if not any(result for name, result in results if name == "Environment Variables"):
             print("\n💡 Tip: Create a .env file with your API keys:")
-            print("   DEEPGRAM_API_KEY=your_deepgram_key")
-            print("   GOOGLE_API_KEY=your_gemini_key")
             print("   GROQ_API_KEY=your_groq_key")
+            print("   GOOGLE_API_KEY=your_gemini_key")
     
     return passed == total
 

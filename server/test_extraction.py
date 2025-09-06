@@ -216,7 +216,7 @@ async def test_concurrent_access():
 
 def check_environment():
     """Check if required environment variables are set."""
-    required_vars = ["GOOGLE_API_KEY", "DEEPGRAM_API_KEY", "GROQ_API_KEY"]
+    required_vars = ["GOOGLE_API_KEY", "GROQ_API_KEY"]
     missing_vars = [var for var in required_vars if not os.getenv(var)]
     
     if missing_vars:

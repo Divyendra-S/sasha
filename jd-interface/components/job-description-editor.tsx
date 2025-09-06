@@ -113,7 +113,7 @@ export function JobDescriptionEditor() {
   };
 
   const getCompletionStats = () => {
-    const fields = [
+    const stringFields = [
       jobDescription.title,
       jobDescription.company,
       jobDescription.description,
@@ -133,10 +133,10 @@ export function JobDescriptionEditor() {
       jobDescription.technicalSkills,
     ];
     
-    const filledFields = fields.filter(Boolean).length;
-    const filledArrays = arrayFields.filter(arr => arr.length > 0).length;
-    const total = fields.length + arrayFields.length;
-    const completed = filledFields + filledArrays;
+    const filledStringFields = stringFields.filter(field => field && field.trim()).length;
+    const filledArrayFields = arrayFields.filter(arr => arr && arr.length > 0).length;
+    const total = stringFields.length + arrayFields.length;
+    const completed = filledStringFields + filledArrayFields;
     
     return {
       completed,
