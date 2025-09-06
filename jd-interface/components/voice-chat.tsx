@@ -183,8 +183,8 @@ export function VoiceChat() {
           </div>
         )}
 
-        {/* Test Button */}
-        <div className="border-t pt-4 mt-4">
+        {/* Test Button - Hidden for production, uncomment for debugging */}
+        {/* <div className="border-t pt-4 mt-4">
           <Button 
             onClick={testAPICall}
             variant="outline"
@@ -193,7 +193,7 @@ export function VoiceChat() {
           >
             🧪 Test API Connection
           </Button>
-        </div>
+        </div> */}
 
         {/* Instructions */}
         {!isConnected && !isConnecting && !error && (

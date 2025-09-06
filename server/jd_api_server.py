@@ -27,12 +27,14 @@ class JDAPIHandler(BaseHTTPRequestHandler):
         """Handle GET requests."""
         parsed_path = urlparse(self.path)
         
-        # Enable CORS for all requests
-        self.send_cors_headers()
-        
         if parsed_path.path == '/api/jd-data':
+            self.send_cors_headers()
             self.handle_jd_data_request()
+        elif parsed_path.path == '/api/jd-status':
+            self.send_cors_headers()
+            self.handle_jd_status_request()
         elif parsed_path.path == '/api/health':
+            self.send_cors_headers()
             self.handle_health_request()
         else:
             self.send_error(404, "Endpoint not found")
@@ -63,8 +65,14 @@ class JDAPIHandler(BaseHTTPRequestHandler):
                     "data": frontend_data,
                     "extractedFields": list(self.jd_data._collected_fields),
                     "missingFields": self.jd_data.get_missing_fields(),
-                    "isComplete": self.jd_data.is_complete()
+                    "isComplete": self.jd_data.is_complete(),
+                    **self.jd_data.get_extraction_info()  # Include extraction status
                 }
+                
+                # Mark extraction as consumed since frontend is fetching the data
+                if self.jd_data.has_new_extraction():
+                    logger.info(f"[JD_API] 🔄 Frontend consuming extraction data, clearing flag")
+                    self.jd_data.mark_extraction_consumed()
             else:
                 response = {
                     "success": False,
@@ -88,6 +96,32 @@ class JDAPIHandler(BaseHTTPRequestHandler):
             
         except Exception as e:
             logger.error(f"[JD_API] Error handling JD data request: {e}")
+            self.send_error(500, f"Internal server error: {str(e)}")
+    
+    def handle_jd_status_request(self):
+        """Handle /api/jd-status requests for extraction status only."""
+        try:
+            if self.jd_data:
+                status_info = self.jd_data.get_extraction_info()
+                response = {
+                    "success": True,
+                    **status_info
+                }
+                logger.info(f"[JD_API] 🔍 Status check: hasNewExtraction={status_info.get('hasNewExtraction', False)}, counter={status_info.get('extractionCounter', 0)}")
+            else:
+                response = {
+                    "success": False,
+                    "hasNewExtraction": False,
+                    "error": "JD data not available"
+                }
+            
+            self.end_headers()
+            response_json = json.dumps(response)
+            logger.info(f"[JD_API] ✅ Sending status response: {response_json}")
+            self.wfile.write(response_json.encode('utf-8'))
+            
+        except Exception as e:
+            logger.error(f"[JD_API] Error handling status request: {e}")
             self.send_error(500, f"Internal server error: {str(e)}")
     
     def handle_health_request(self):

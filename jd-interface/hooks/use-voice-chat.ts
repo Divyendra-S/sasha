@@ -237,16 +237,73 @@ export function useVoiceChat() {
       }
     };
 
-    const handleServerMessage = (data: any) => {
-      console.log("📨 Generic server message:", data);
+    const handleExtractionComplete = async (data: any) => {
+      console.log("🎯 Extraction complete event received:", data);
       
-      // Check if this is a JD data update message
-      if (data?.type === 'jd-data-update' || data?.data?.type === 'jd-data-update') {
-        handleJDDataUpdate(data);
+      try {
+        // Check extraction status first
+        const statusResponse = await fetch('http://localhost:7861/api/jd-status');
+        if (statusResponse.ok) {
+          const statusResult = await statusResponse.json();
+          
+          if (statusResult.success && statusResult.hasNewExtraction) {
+            console.log("✨ New extraction detected, fetching full data...");
+            
+            // Fetch the full JD data
+            const dataResponse = await fetch('http://localhost:7861/api/jd-data');
+            if (dataResponse.ok) {
+              const dataResult = await dataResponse.json();
+              
+              if (dataResult.success && dataResult.data) {
+                console.log("✅ Event-driven JD update:", dataResult.data);
+                bulkUpdateJD(dataResult.data);
+                
+                // Show user feedback
+                const fieldName = data?.data?.fieldName || 'Field';
+                console.log(`🔄 JD Field Updated via Event: ${fieldName}`);
+              }
+            }
+          } else {
+            console.log("🔄 No new extraction available");
+          }
+        }
+      } catch (error) {
+        console.error("❌ Error processing extraction event:", error);
+      }
+    };
+
+    const handleServerMessage = (data: any) => {
+      console.log("📨 Server message received:", JSON.stringify(data, null, 2));
+      
+      // Handle different possible message wrapping structures
+      let actualData = data;
+      let messageType = data?.type;
+      
+      // Check if message is wrapped in a data property
+      if (data?.data && typeof data.data === 'object') {
+        actualData = data.data;
+        messageType = data.data.type || data.type;
+        console.log("🔍 Unwrapped message data:", JSON.stringify(actualData, null, 2));
+      }
+      
+      console.log("🏷️ Message type identified:", messageType);
+      
+      // Check if this is an extraction complete event
+      if (messageType === 'extraction-complete') {
+        console.log("🎯 Handling extraction-complete event");
+        handleExtractionComplete(actualData);
         return;
       }
       
-      // This is a fallback for any messages we might not be handling specifically
+      // Check if this is a JD data update message (legacy support)
+      if (messageType === 'jd-data-update') {
+        console.log("📊 Handling jd-data-update event");
+        handleJDDataUpdate(actualData);
+        return;
+      }
+      
+      // Log unhandled message types for debugging
+      console.log("🤷 Unhandled server message type:", messageType);
     };
 
     const handleError = (message: any) => {
@@ -295,70 +352,99 @@ export function useVoiceChat() {
     };
   }, [client, updateVoiceStatus, addMessage]);
 
-  // Polling mechanism for JD data as fallback
+  // Initial JD data fetch and smart polling fallback
   useEffect(() => {
     let pollingInterval: NodeJS.Timeout | undefined;
+    let eventsReceived = false;
+    let lastExtractionCounter = 0;
     
-    const fetchJDData = async () => {
+    const fetchInitialJDData = async () => {
       try {
-        console.log('🔍 Polling JD data from API...');
+        console.log('🔄 Fetching initial JD data...');
         const response = await fetch('http://localhost:7861/api/jd-data');
-        console.log('🎯 API Response status:', response.status);
         
         if (response.ok) {
           const result = await response.json();
-          console.log('📊 Full API result:', result);
           
           if (result.success && result.data) {
-            console.log('✅ SUCCESS: Fetched JD data from API:', result.data);
-            console.log('🔍 Extracted fields:', result.extractedFields);
-            console.log('📊 Current title value:', result.data.title);
-            console.log('📊 Current company value:', result.data.company);
-            console.log('📊 Current salary value:', result.data.salaryRange);
-            
-            console.log('🔄 About to call bulkUpdateJD with:', result.data);
+            console.log('✅ Initial JD data loaded');
             bulkUpdateJD(result.data);
-            console.log('✅ bulkUpdateJD call completed');
-          } else {
-            console.log('⚠️ API response but no data:', result);
           }
-        } else {
-          console.log('❌ API response failed:', response.status, response.statusText);
         }
       } catch (error) {
-        // Don't silently fail - let's see what's happening
-        console.log('❌ JD data polling failed:', error);
+        console.log('⚠️ Initial JD data fetch error:', error);
       }
     };
     
-    // For testing: start polling regardless of connection status
-    // if (voiceSession.isConnected && !isPollingJDData) {
+    const checkForUpdates = async () => {
+      try {
+        const statusResponse = await fetch('http://localhost:7861/api/jd-status');
+        if (statusResponse.ok) {
+          const statusResult = await statusResponse.json();
+          
+          // Check if there's new extraction activity
+          if (statusResult.success) {
+            const currentCounter = statusResult.extractionCounter || 0;
+            
+            if (statusResult.hasNewExtraction || currentCounter > lastExtractionCounter) {
+              console.log('✨ Smart polling detected new extraction, fetching data...');
+              
+              const dataResponse = await fetch('http://localhost:7861/api/jd-data');
+              if (dataResponse.ok) {
+                const dataResult = await dataResponse.json();
+                
+                if (dataResult.success && dataResult.data) {
+                  console.log('✅ Smart polling JD update:', dataResult.data);
+                  bulkUpdateJD(dataResult.data);
+                  lastExtractionCounter = currentCounter;
+                }
+              }
+            }
+          }
+        }
+      } catch (error) {
+        // Silently handle polling errors
+        if (!(error instanceof Error && error.toString().includes('NetworkError'))) {
+          console.log('⚠️ Smart polling error:', error);
+        }
+      }
+    };
+    
+    // Mark when RTVI events are received (will be called from handleServerMessage)
+    const markEventReceived = () => {
+      if (!eventsReceived) {
+        eventsReceived = true;
+        console.log('🎯 RTVI events working, reducing polling frequency');
+      }
+    };
+    
+    // Fetch initial data and start smart polling
     if (!isPollingJDData) {
       setIsPollingJDData(true);
-      pollingInterval = setInterval(fetchJDData, 1000); // Poll every 1 second for faster updates
-      console.log('🔄 Started JD data polling - interval created');
-      // Also fetch immediately
-      fetchJDData();
-    } 
-    // Temporarily disable stopping polling for testing
-    // else if (!voiceSession.isConnected && isPollingJDData) {
-    else if (false) {
-      setIsPollingJDData(false);
-      console.log('⏹️ Stopped JD data polling');
+      fetchInitialJDData();
+      
+      // Start smart polling every 5 seconds
+      pollingInterval = setInterval(() => {
+        if (!eventsReceived) {
+          checkForUpdates();
+        } else {
+          // Reduce polling frequency when events are working
+          if (Math.random() < 0.2) { // 20% chance = every ~25 seconds
+            checkForUpdates();
+          }
+        }
+      }, 5000);
+      
+      console.log('🎯 Started smart polling with event detection (5s intervals)');
     }
-    
-    console.log('📊 Polling status:', {
-      isConnected: voiceSession.isConnected,
-      isPollingJDData,
-      hasInterval: !!pollingInterval
-    });
     
     return () => {
       if (pollingInterval) {
         clearInterval(pollingInterval);
+        console.log('⏹️ Stopped smart polling');
       }
     };
-  }, [isPollingJDData, bulkUpdateJD]); // Removed isConnected for testing
+  }, []); // Run once on mount
 
   return {
     messages,

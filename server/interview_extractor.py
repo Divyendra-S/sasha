@@ -45,10 +45,33 @@ class JDData:
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     _update_callbacks: List[Callable] = field(default_factory=list, init=False, repr=False)
     
+    # Extraction event tracking
+    _has_new_extraction: bool = field(default=False, init=False, repr=False)
+    _last_extraction_time: float = field(default=0.0, init=False, repr=False)
+    _extraction_counter: int = field(default=0, init=False, repr=False)
+    
     def add_update_callback(self, callback: Callable[[str, any], None]):
         """Add a callback that will be called when any field is updated."""
         self._update_callbacks.append(callback)
         logger.info(f"[JD_DATA] Added update callback, total callbacks: {len(self._update_callbacks)}")
+    
+    def has_new_extraction(self) -> bool:
+        """Check if there are new extractions since last frontend fetch."""
+        return self._has_new_extraction
+    
+    def get_extraction_info(self) -> dict:
+        """Get extraction status information."""
+        return {
+            "hasNewExtraction": self._has_new_extraction,
+            "lastExtractionTime": self._last_extraction_time,
+            "extractionCounter": self._extraction_counter,
+            "totalFields": len(self._collected_fields)
+        }
+    
+    def mark_extraction_consumed(self):
+        """Mark that frontend has consumed the extraction updates."""
+        self._has_new_extraction = False
+        logger.info(f"[JD_DATA] 🔄 Extraction marked as consumed by frontend")
     
     def get_missing_fields(self) -> List[str]:
         """Get list of fields that haven't been collected yet."""
@@ -131,6 +154,12 @@ class JDData:
                     print(f"💾 Value: {value}")
                     print(f"📈 Progress: {completion_pct:.0f}% ({len(self._collected_fields)}/{total_fields} fields)")
                     print(f"❌ Missing: {self.get_missing_fields()}\n")
+                    
+                    # Mark new extraction occurred
+                    self._has_new_extraction = True
+                    self._last_extraction_time = time.time()
+                    self._extraction_counter += 1
+                    logger.info(f"[JD_DATA] 🚨 NEW EXTRACTION FLAG SET: #{self._extraction_counter}")
                     
                     # Notify callbacks of the update
                     for callback in self._update_callbacks:

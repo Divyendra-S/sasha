@@ -57,14 +57,27 @@ class JDDataBroadcaster(FrameProcessor):
             # Try multiple approaches to send the message
             message_sent = False
             
-            # Approach 1: Try RTVI send_message if available
-            if self.rtvi_processor and hasattr(self.rtvi_processor, 'send_message'):
+            # Approach 1: Try RTVI send_server_message if available
+            if self.rtvi_processor and hasattr(self.rtvi_processor, 'send_server_message'):
                 try:
-                    await self.rtvi_processor.send_message(rtvi_message)
+                    await self.rtvi_processor.send_server_message(rtvi_message)
                     logger.info(f"[JD_BROADCASTER] ✅ Sent RTVI update for '{field_name}'")
                     message_sent = True
+                    
+                    # Also send extraction-complete event via RTVI
+                    extraction_event = {
+                        "type": "extraction-complete",
+                        "data": {
+                            "hasNewExtraction": True,
+                            "fieldName": field_name,
+                            "timestamp": asyncio.get_event_loop().time() * 1000
+                        }
+                    }
+                    await self.rtvi_processor.send_server_message(extraction_event)
+                    logger.info(f"[JD_BROADCASTER] 🎯 Sent extraction event via RTVI")
+                    
                 except Exception as e:
-                    logger.warning(f"[JD_BROADCASTER] RTVI send_message failed: {e}")
+                    logger.warning(f"[JD_BROADCASTER] RTVI send_server_message failed: {e}")
             
             # Approach 2: Try transport send if available
             if not message_sent and self.transport and hasattr(self.transport, 'send_message'):
@@ -102,6 +115,24 @@ class JDDataBroadcaster(FrameProcessor):
                 update_frame = JDDataUpdateFrame(field_name, field_value, complete_data)
                 await self.push_frame(update_frame, FrameDirection.DOWNSTREAM)
                 logger.info(f"[JD_BROADCASTER] ✅ Sent custom frame for '{field_name}'")
+                
+                # Send extraction notification event
+                extraction_event = {
+                    "type": "extraction-complete",
+                    "data": {
+                        "hasNewExtraction": True,
+                        "fieldName": field_name,
+                        "timestamp": asyncio.get_event_loop().time() * 1000
+                    }
+                }
+                
+                # Try to send extraction event via multiple channels
+                if self.rtvi_processor and hasattr(self.rtvi_processor, 'send_server_message'):
+                    try:
+                        await self.rtvi_processor.send_server_message(extraction_event)
+                        logger.info(f"[JD_BROADCASTER] 🎯 Sent extraction event via RTVI")
+                    except Exception as e:
+                        logger.warning(f"[JD_BROADCASTER] RTVI extraction event failed: {e}")
                 
                 # Also try to write to a shared file that frontend can poll
                 try:

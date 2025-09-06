@@ -32,6 +32,7 @@ export function JobDescriptionEditor() {
   // Track recently updated fields for visual feedback
   const [recentlyUpdated, setRecentlyUpdated] = useState<Set<string>>(new Set());
   const [isAIExtracting, setIsAIExtracting] = useState(false);
+  const [lastUpdateTime, setLastUpdateTime] = useState<number>(0);
   const prevJobDescription = useRef(jobDescription);
   
   // Detect when fields are updated (likely by AI)
@@ -43,20 +44,27 @@ export function JobDescriptionEditor() {
       const current = jobDescription[key as keyof typeof jobDescription];
       const previous = prevJobDescription.current[key as keyof typeof jobDescription];
       
-      // Check for actual changes
+      // Check for actual meaningful changes
       if (JSON.stringify(current) !== JSON.stringify(previous)) {
-        // Only highlight if the field has meaningful content
-        if ((typeof current === 'string' && current.trim()) || 
-            (Array.isArray(current) && current.length > 0)) {
+        // Only highlight if the field gained meaningful content (not just empty to empty)
+        const currentHasContent = (typeof current === 'string' && current.trim()) || 
+                                (Array.isArray(current) && current.length > 0);
+        const previousHasContent = (typeof previous === 'string' && previous.trim()) || 
+                                 (Array.isArray(previous) && previous.length > 0);
+        
+        // Only animate if we're gaining content or changing existing content
+        if (currentHasContent && (!previousHasContent || current !== previous)) {
           updatedFields.add(key);
         }
       }
     });
     
+    // Only trigger animation if we have genuinely new content
     if (updatedFields.size > 0) {
-      console.log('✨ Fields updated by AI:', Array.from(updatedFields));
+      console.log('✨ NEW content detected in fields:', Array.from(updatedFields));
       setRecentlyUpdated(updatedFields);
       setIsAIExtracting(true);
+      setLastUpdateTime(Date.now());
       
       // Clear the highlight after 3 seconds
       setTimeout(() => {
@@ -124,9 +132,9 @@ export function JobDescriptionEditor() {
   // Helper function to get field styling
   const getFieldStyling = (fieldName: string) => {
     if (isFieldRecentlyUpdated(fieldName)) {
-      return "animate-pulse ring-2 ring-green-400 ring-opacity-75 bg-green-50 border-green-300";
+      return "animate-pulse ring-2 ring-green-500 ring-opacity-100 bg-green-50 border-green-400 transition-all duration-300";
     }
-    return "";
+    return "transition-all duration-300";
   };
   
   // Helper function to render field icon with AI indicator
@@ -136,10 +144,10 @@ export function JobDescriptionEditor() {
       <div className="relative">
         {children}
         {isUpdated && (
-          <div className="absolute -top-2 -right-2 flex items-center gap-1">
+          <div className="absolute -top-2 -right-2 flex items-center gap-1 animate-bounce">
             <Sparkles className="w-4 h-4 text-green-500 animate-spin" />
-            <span className="text-xs text-green-600 bg-green-100 px-1 py-0.5 rounded font-medium">
-              AI
+            <span className="text-xs text-green-600 bg-green-100 px-2 py-1 rounded-full font-medium shadow-sm">
+              LIVE
             </span>
           </div>
         )}
@@ -157,7 +165,12 @@ export function JobDescriptionEditor() {
             {isAIExtracting && (
               <div className="flex items-center gap-1 text-green-600">
                 <Zap className="w-4 h-4 animate-pulse" />
-                <span className="text-sm font-medium">AI Extracting...</span>
+                <span className="text-sm font-medium">Live Update!</span>
+              </div>
+            )}
+            {!isAIExtracting && lastUpdateTime > 0 && (
+              <div className="text-xs text-muted-foreground">
+                Last updated {Math.floor((Date.now() - lastUpdateTime) / 1000)}s ago
               </div>
             )}
           </div>
